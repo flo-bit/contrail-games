@@ -2,7 +2,8 @@ import type { Hono } from "hono";
 import type { ContrailConfig, Database, RecordRow, QueryableField } from "../types";
 import { getCollectionNames } from "../types";
 import { resolvedQueryable, resolvedRelationsMap } from "../queryable.generated";
-import { queryRecords, getUsersByCollection } from "../db";
+import { queryRecords } from "../db";
+import type { SortOption } from "../db/records";
 import { backfillUser } from "../backfill";
 import { resolveHydrates, parseHydrateParams } from "./hydrate";
 import { resolveProfiles, collectDids } from "./profiles";
@@ -21,10 +22,10 @@ export function registerCollectionRoutes(
     const queryableFields: Record<string, QueryableField> =
       resolvedQueryable[collection] ?? colConfig.queryable ?? {};
 
-    app.get(`/xrpc/${collection}.getRecords`, async (c) => {
+    app.get(`/xrpc/${collection}.listRecords`, async (c) => {
       const params = new URL(c.req.url).searchParams;
       const limit = parseIntParam(params.get("limit"), 50);
-      const cursor = parseIntParam(params.get("cursor"));
+      const cursor = params.get("cursor") || undefined;
       const actor = params.get("actor") || params.get("did") || undefined;
       const wantProfiles = params.get("profiles") === "true";
 
@@ -69,6 +70,45 @@ export function registerCollectionRoutes(
         }
       }
 
+      // Resolve sort option
+      let sort: SortOption | undefined;
+      const sortParam = params.get("sort");
+      if (sortParam) {
+        const orderParam = params.get("order");
+
+        // Check if it's a queryable field (param name → json path)
+        const fieldEntry = Object.entries(queryableFields).find(
+          ([field]) => fieldToParam(field) === sortParam
+        );
+        if (fieldEntry) {
+          // Default: desc for range fields (dates, numbers), asc for others
+          const defaultDir = fieldEntry[1].type === "range" ? "desc" : "asc";
+          const direction = orderParam === "asc" ? "asc" as const : orderParam === "desc" ? "desc" as const : defaultDir as "asc" | "desc";
+          sort = { recordField: fieldEntry[0], direction };
+        } else {
+          // Count fields default to desc (you usually want "most X first")
+          const direction = orderParam === "asc" ? "asc" as const : "desc" as const;
+          // Check if it's a count field (e.g. rsvpsCount → collection NSID, rsvpsGoingCount → full token)
+          const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+          for (const [relName, rel] of Object.entries(relations)) {
+            if (sortParam === `${relName}Count`) {
+              sort = { countType: rel.collection, direction };
+              break;
+            }
+            const mapping = relMap[relName];
+            if (mapping) {
+              for (const [shortName, fullToken] of Object.entries(mapping.groups)) {
+                if (sortParam === `${relName}${capitalize(shortName)}Count`) {
+                  sort = { countType: fullToken, direction };
+                  break;
+                }
+              }
+              if (sort) break;
+            }
+          }
+        }
+      }
+
       const result = await queryRecords(db, config, {
         collection,
         did,
@@ -77,6 +117,7 @@ export function registerCollectionRoutes(
         filters,
         rangeFilters,
         countFilters,
+        sort,
       });
 
       const rows = result.records;
@@ -162,32 +203,6 @@ export function registerCollectionRoutes(
       return c.json({
         ...formatted,
         ...(profileMap ? { profiles: Object.values(profileMap) } : {}),
-      });
-    });
-
-    app.get(`/xrpc/${collection}.getUsers`, async (c) => {
-      const limit = parseIntParam(c.req.query("limit"), 50) ?? 50;
-      const cursor = parseIntParam(c.req.query("cursor"));
-      return c.json(await getUsersByCollection(db, collection, limit, cursor));
-    });
-
-    app.get(`/xrpc/${collection}.getStats`, async (c) => {
-      const row = await db
-        .prepare(
-          "SELECT COUNT(DISTINCT did) as unique_users, COUNT(*) as total_records, MAX(time_us) as last_record_time_us FROM records WHERE collection = ?"
-        )
-        .bind(collection)
-        .first<{
-          unique_users: number;
-          total_records: number;
-          last_record_time_us: number | null;
-        }>();
-
-      return c.json({
-        collection,
-        unique_users: row?.unique_users ?? 0,
-        total_records: row?.total_records ?? 0,
-        last_record_time_us: row?.last_record_time_us ?? null,
       });
     });
 

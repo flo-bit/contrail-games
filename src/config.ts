@@ -10,8 +10,13 @@ export const config: ContrailConfig = {
         },
       },
     },
-    "community.lexicon.calendar.rsvp": {},
-    "app.blento.card": {}
+    "community.lexicon.calendar.rsvp": {
+      relations: {
+        event: {
+          collection: "community.lexicon.calendar.event",
+          field: "subject.uri",
+        },
+      },
+    },
   },
-  profiles: ["app.bsky.actor.profile", "app.blento.profile"],
 };

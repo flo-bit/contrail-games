@@ -194,11 +194,8 @@
           "type": "string"
         },
         "record": {
-          "type": "union",
-          "refs": [
-            "#appBskyActorProfile",
-            "#appBlentoProfile"
-          ]
+          "type": "ref",
+          "ref": "#appBskyActorProfile"
         }
       }
     },
@@ -262,27 +259,6 @@
         "joinedViaStarterPack": {
           "ref": "com.atproto.repo.strongRef",
           "type": "ref"
-        }
-      }
-    },
-    "appBlentoProfile": {
-      "type": "object",
-      "properties": {
-        "displayName": {
-          "type": "string",
-          "maxLength": 640
-        },
-        "description": {
-          "type": "string",
-          "maxLength": 2560
-        },
-        "avatar": {
-          "type": "blob",
-          "accept": [
-            "image/png",
-            "image/jpeg"
-          ],
-          "maxSize": 1000000
         }
       }
     }

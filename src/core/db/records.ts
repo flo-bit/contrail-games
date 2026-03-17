@@ -136,14 +136,21 @@ export async function applyEvents(
 
 // --- Query ---
 
+export interface SortOption {
+  recordField?: string;  // json path, e.g. "startsAt" — sorts by json_extract
+  countType?: string;    // count type, e.g. collection NSID — sorts by aggregated count
+  direction: "asc" | "desc";
+}
+
 export interface QueryOptions {
   collection: string;
   did?: string;
   limit?: number;
-  cursor?: number;
+  cursor?: string;
   filters?: Record<string, string>;
   rangeFilters?: Record<string, { min?: string; max?: string }>;
   countFilters?: Record<string, number>;
+  sort?: SortOption;
 }
 
 export async function queryRecords(
@@ -159,6 +166,7 @@ export async function queryRecords(
     filters = {},
     rangeFilters = {},
     countFilters = {},
+    sort,
   } = options;
 
   const limit = Math.min(Math.max(1, rawLimit ?? 50), 100);
@@ -170,9 +178,28 @@ export async function queryRecords(
     bindings.push(did);
   }
 
+  // Cursor = AT URI of last seen record. Look it up to get keyset values.
   if (cursor) {
-    conditions.push("r.time_us < ?");
-    bindings.push(cursor);
+    const cursorRow = await db
+      .prepare("SELECT record, time_us FROM records WHERE uri = ?")
+      .bind(cursor)
+      .first<{ record: string | null; time_us: number }>();
+
+    if (cursorRow) {
+      if (sort?.recordField) {
+        const cursorRecord = cursorRow.record ? JSON.parse(cursorRow.record) : null;
+        const sortValue = cursorRecord ? getNestedValue(cursorRecord, sort.recordField) : null;
+        const field = `json_extract(r.record, '$.${sort.recordField}')`;
+        const cmp = sort.direction === "desc" ? "<" : ">";
+        conditions.push(`(${field} ${cmp} ? OR (${field} = ? AND r.time_us < ?))`);
+        bindings.push(sortValue ?? "", sortValue ?? "", cursorRow.time_us);
+      } else if (sort?.countType) {
+        // Count sort cursor — look up the count value, handled in HAVING below
+      } else {
+        conditions.push("r.time_us < ?");
+        bindings.push(cursorRow.time_us);
+      }
+    }
   }
 
   for (const [field, value] of Object.entries(filters)) {
@@ -193,13 +220,34 @@ export async function queryRecords(
 
   const colConfig = config.collections[collection];
   const relations = colConfig?.relations ?? {};
-  const needsCounts = Object.keys(relations).length > 0 || Object.keys(countFilters).length > 0;
+  const sortByCount = sort?.countType != null;
+  const needsCounts = Object.keys(relations).length > 0 || Object.keys(countFilters).length > 0 || sortByCount;
 
   const countHaving: string[] = [];
   const countHavingBindings: (string | number)[] = [];
   for (const [type, minCount] of Object.entries(countFilters)) {
     countHaving.push(`COALESCE(SUM(CASE WHEN c.type = ? THEN c.count END), 0) >= ?`);
     countHavingBindings.push(type, minCount);
+  }
+
+  // Cursor condition for count sort — keyset pagination in HAVING
+  if (cursor && sort?.countType) {
+    const countRow = await db
+      .prepare("SELECT COALESCE(count, 0) as count FROM counts WHERE uri = ? AND type = ?")
+      .bind(cursor, sort.countType)
+      .first<{ count: number }>();
+    const cursorTimeRow = await db
+      .prepare("SELECT time_us FROM records WHERE uri = ?")
+      .bind(cursor)
+      .first<{ time_us: number }>();
+
+    if (cursorTimeRow) {
+      const countValue = countRow?.count ?? 0;
+      const countExpr = `COALESCE(SUM(CASE WHEN c.type = ? THEN c.count END), 0)`;
+      const cmp = sort.direction === "desc" ? "<" : ">";
+      countHaving.push(`(${countExpr} ${cmp} ? OR (${countExpr} = ? AND r.time_us < ?))`);
+      countHavingBindings.push(sort.countType, countValue, sort.countType, countValue, cursorTimeRow.time_us);
+    }
   }
 
   const where = conditions.join(" AND ");
@@ -210,10 +258,24 @@ export async function queryRecords(
   const group = needsCounts ? "GROUP BY r.uri" : "";
   const having = countHaving.length > 0 ? `HAVING ${countHaving.join(" AND ")}` : "";
 
+  let orderBy: string;
+  const orderBindings: (string | number)[] = [];
+  if (sort?.recordField) {
+    const dir = sort.direction === "desc" ? "DESC" : "ASC";
+    orderBy = `json_extract(r.record, '$.${sort.recordField}') ${dir}, r.time_us DESC`;
+  } else if (sort?.countType) {
+    const dir = sort.direction === "desc" ? "DESC" : "ASC";
+    orderBy = `COALESCE(SUM(CASE WHEN c.type = ? THEN c.count END), 0) ${dir}, r.time_us DESC`;
+    orderBindings.push(sort.countType);
+  } else {
+    orderBy = "r.time_us DESC";
+  }
+
   if (needsCounts) bindings.push(...countHavingBindings);
+  bindings.push(...orderBindings);
   bindings.push(limit);
 
-  const query = `SELECT ${select} FROM records r ${join} WHERE ${where} ${group} ${having} ORDER BY r.time_us DESC LIMIT ?`;
+  const query = `SELECT ${select} FROM records r ${join} WHERE ${where} ${group} ${having} ORDER BY ${orderBy} LIMIT ?`;
 
   const result = await db
     .prepare(query)
@@ -228,7 +290,7 @@ export async function queryRecords(
 
   const nextCursor =
     records.length === limit
-      ? String(records[records.length - 1].time_us)
+      ? records[records.length - 1].uri
       : undefined;
 
   return { records, cursor: nextCursor };
@@ -251,30 +313,3 @@ function parseCounts(raw?: string | null): Record<string, number> | undefined {
 
 // --- Users ---
 
-export interface UserRecord {
-  did: string;
-  record_count: number;
-}
-
-export async function getUsersByCollection(
-  db: Database,
-  collection: string,
-  limit: number,
-  cursor?: number
-): Promise<{ users: UserRecord[]; cursor?: string }> {
-  const clampedLimit = Math.min(Math.max(1, limit), 100);
-  const offset = cursor ?? 0;
-
-  const result = await db
-    .prepare(
-      "SELECT did, COUNT(*) AS record_count FROM records WHERE collection = ? GROUP BY did ORDER BY record_count DESC LIMIT ? OFFSET ?"
-    )
-    .bind(collection, clampedLimit, offset)
-    .all<UserRecord>();
-
-  const users = result.results ?? [];
-  const nextCursor =
-    users.length === clampedLimit ? String(offset + clampedLimit) : undefined;
-
-  return { users, cursor: nextCursor };
-}

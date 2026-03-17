@@ -14,15 +14,16 @@ export interface ProfileEntry {
 
 export function collectDids(
   records: RecordRow[],
-  hydrates: Record<string, Record<string, Record<string, any[]>>>
+  hydrates: Record<string, Record<string, any[] | Record<string, any[]>>>
 ): string[] {
   const dids = new Set(records.map((r) => r.did));
-  for (const groups of Object.values(hydrates)) {
-    for (const byGroup of Object.values(groups)) {
-      for (const items of Object.values(byGroup)) {
-        for (const item of items) {
-          if (item.did) dids.add(item.did);
-        }
+  for (const rels of Object.values(hydrates)) {
+    for (const value of Object.values(rels)) {
+      const items = Array.isArray(value)
+        ? value
+        : Object.values(value).flat();
+      for (const item of items) {
+        if (item.did) dids.add(item.did);
       }
     }
   }

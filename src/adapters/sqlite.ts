@@ -5,39 +5,32 @@ export function createSqliteDatabase(path: string): Database {
   const raw = new BetterSqlite3(path);
   raw.pragma("journal_mode = WAL");
 
-  function wrapStatement(
-    stmt: BetterSqlite3.Statement,
-    boundValues: any[] = []
-  ): Statement {
+  function wrapStatement(sql: string, boundValues: any[] = []): Statement {
     return {
       bind(...values: any[]): Statement {
-        return wrapStatement(stmt, values);
+        return wrapStatement(sql, values);
       },
       async run() {
-        return stmt.run(...boundValues);
+        return raw.prepare(sql).run(...boundValues);
       },
       async all<T>() {
-        return { results: stmt.all(...boundValues) as T[] };
+        return { results: raw.prepare(sql).all(...boundValues) as T[] };
       },
       async first<T>() {
-        return (stmt.get(...boundValues) as T) ?? null;
+        return (raw.prepare(sql).get(...boundValues) as T) ?? null;
       },
     };
   }
 
   return {
     prepare(sql: string): Statement {
-      const stmt = raw.prepare(sql);
-      return wrapStatement(stmt);
+      return wrapStatement(sql);
     },
     async batch(stmts: Statement[]): Promise<any[]> {
       const results: any[] = [];
-      const transaction = raw.transaction(() => {
-        for (const stmt of stmts) {
-          results.push(stmt.run());
-        }
-      });
-      transaction();
+      for (const stmt of stmts) {
+        results.push(await stmt.run());
+      }
       return results;
     },
   };

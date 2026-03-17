@@ -44,7 +44,7 @@ pnpm deploy               # Deploy to Cloudflare Workers
 ### Router (`src/core/router/`)
 
 - **`index.ts`** — Hono app factory with CORS, health checks, admin routes, and per-collection routes.
-- **`collection.ts`** — Registers dynamic XRPC endpoints per collection: `getRecords`, `getRecord`, `getUsers`, `getStats`, plus custom queries.
+- **`collection.ts`** — Registers dynamic XRPC endpoints per collection: `getRecords`, `getRecord`, plus custom queries.
 - **`admin.ts`** — Admin endpoints (`sync`, `getCursor`, `getOverview`) protected by `ADMIN_SECRET`.
 - **`hydrate.ts`** — Hydration: embedding related records into responses.
 - **`profiles.ts`** — Profile resolution: attaching handle + profile data to responses.
@@ -59,3 +59,13 @@ This script reads `src/config.ts`, auto-detects queryable fields from lexicon JS
 - **Database abstraction**: `Database`/`Statement` interfaces in `types.ts` let the same core logic run against both Cloudflare D1 and local SQLite.
 - **Dependent collections**: Collections with `discover: false` (e.g., profiles) only index records for DIDs already known from discoverable collections.
 - **Relations**: Materialized counts in the `counts` table, updated on every ingest event. `groupBy` splits counts by a field value.
+
+## Testing workflow
+
+Always follow TDD when making changes:
+
+1. **Write tests first** — add or update tests that cover the new behavior. Run them and confirm they **fail**.
+2. **Update code** — implement the change.
+3. **Run tests again** — confirm all tests **pass** (including existing ones).
+
+Tests live in `tests/` and use Vitest. Run with `npx vitest run`.

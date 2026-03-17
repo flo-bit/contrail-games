@@ -2,7 +2,7 @@
  * Generates lexicon TypeScript files from the Contrail config.
  *
  * For each collection, generates:
- *   - {nsid}.getRecords  — query with queryable field params
+ *   - {nsid}.listRecords  — query with queryable field params
  *   - {nsid}.getUsers    — query with limit/cursor
  *   - {nsid}.getStats    — query returning collection stats
  *
@@ -187,10 +187,17 @@ function buildRecordDef(
   if (relationDefs && relationDefs.length > 0) {
     for (const rd of relationDefs) {
       const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-      properties[rd.relName] = {
-        type: "ref",
-        ref: `#hydrate${capitalize(rd.relName)}`,
-      };
+      if (rd.groupBy && Object.keys(rd.groups).length > 0) {
+        properties[rd.relName] = {
+          type: "ref",
+          ref: `#hydrate${capitalize(rd.relName)}`,
+        };
+      } else {
+        properties[rd.relName] = {
+          type: "array",
+          items: { type: "ref", ref: `#hydrate${capitalize(rd.relName)}Record` },
+        };
+      }
     }
   }
 
@@ -226,11 +233,10 @@ function buildHydrateDefs(relationDefs: RelationDef[]): Record<string, any> {
       },
     };
 
-    // Def for the group structure
-    const groupDefName = `hydrate${capitalize(rd.relName)}`;
-    const groupProperties: Record<string, any> = {};
-
     if (rd.groupBy && Object.keys(rd.groups).length > 0) {
+      // Grouped relation: object with group keys
+      const groupDefName = `hydrate${capitalize(rd.relName)}`;
+      const groupProperties: Record<string, any> = {};
       for (const shortName of Object.keys(rd.groups)) {
         groupProperties[shortName] = {
           type: "array",
@@ -241,17 +247,12 @@ function buildHydrateDefs(relationDefs: RelationDef[]): Record<string, any> {
         type: "array",
         items: { type: "ref", ref: `#${recordDefName}` },
       };
-    } else {
-      groupProperties["_all"] = {
-        type: "array",
-        items: { type: "ref", ref: `#${recordDefName}` },
+      defs[groupDefName] = {
+        type: "object",
+        properties: groupProperties,
       };
     }
-
-    defs[groupDefName] = {
-      type: "object",
-      properties: groupProperties,
-    };
+    // Ungrouped relations are typed directly as arrays on the record (no wrapper def needed)
   }
 
   return defs;
@@ -456,8 +457,8 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
     }
   }
 
-  // --- getRecords ---
-  const getRecordsParamProps: Record<string, any> = {
+  // --- listRecords ---
+  const listRecordsParamProps: Record<string, any> = {
     limit: { type: "integer", minimum: 1, maximum: 100, default: 50 },
     cursor: { type: "string" },
     actor: { type: "string", format: "at-identifier", description: "Filter by DID or handle (triggers on-demand backfill)" },
@@ -467,16 +468,16 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
   for (const [field, fieldConfig] of Object.entries(merged)) {
     const param = fieldToParam(field);
     if (fieldConfig.type === "range") {
-      getRecordsParamProps[`${param}Min`] = {
+      listRecordsParamProps[`${param}Min`] = {
         type: "string",
         description: `Minimum value for ${field}`,
       };
-      getRecordsParamProps[`${param}Max`] = {
+      listRecordsParamProps[`${param}Max`] = {
         type: "string",
         description: `Maximum value for ${field}`,
       };
     } else {
-      getRecordsParamProps[param] = {
+      listRecordsParamProps[param] = {
         type: "string",
         description: `Filter by ${field}`,
       };
@@ -491,24 +492,17 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
 
     // Total count
     countFields.push({ name: `${relName}Count`, description: `Total ${relName} count` });
-    getRecordsParamProps[`${relName}CountMin`] = {
+    listRecordsParamProps[`${relName}CountMin`] = {
       type: "integer",
       description: `Minimum total ${relName} count`,
     };
 
     // Per-relation hydrate param (e.g. hydrateRsvps=5)
-    getRecordsParamProps[`hydrate${capitalize(relName)}`] = {
+    listRecordsParamProps[`hydrate${capitalize(relName)}`] = {
       type: "integer",
       minimum: 1,
       maximum: 50,
       description: `Number of ${relName} records to embed per record`,
-    };
-
-    getRecordsParamProps[`${relName}Preview`] = {
-      type: "integer",
-      minimum: 1,
-      maximum: 50,
-      description: `Number of ${relName} previews per record`,
     };
 
     // Per-group counts from knownValues
@@ -522,7 +516,7 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
           name: `${relName}${capitalize(shortName)}Count`,
           description: `${relName} count where ${rel.groupBy} = ${shortName}`,
         });
-        getRecordsParamProps[`${relName}${capitalize(shortName)}CountMin`] = {
+        listRecordsParamProps[`${relName}${capitalize(shortName)}CountMin`] = {
           type: "integer",
           description: `Minimum ${relName} count where ${rel.groupBy} = ${shortName}`,
         };
@@ -544,18 +538,40 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
     });
   }
 
+  // Build sortable field values: queryable fields + count fields
+  const sortableValues: string[] = [];
+  for (const field of Object.keys(merged)) {
+    sortableValues.push(fieldToParam(field));
+  }
+  for (const cf of countFields) {
+    sortableValues.push(cf.name);
+  }
+
+  if (sortableValues.length > 0) {
+    listRecordsParamProps["sort"] = {
+      type: "string",
+      knownValues: sortableValues,
+      description: "Field to sort by (default: time_us)",
+    };
+    listRecordsParamProps["order"] = {
+      type: "string",
+      knownValues: ["asc", "desc"],
+      description: "Sort direction (default: desc for dates/numbers/counts, asc for strings)",
+    };
+  }
+
   const hydrateDefs = buildHydrateDefs(relationDefs);
 
-  writeLexicon(`${collection}.getRecords`, {
+  writeLexicon(`${collection}.listRecords`, {
     lexicon: 1,
-    id: `${collection}.getRecords`,
+    id: `${collection}.listRecords`,
     defs: {
       main: {
         type: "query",
         description: `Query ${collection} records with filters`,
         parameters: {
           type: "params",
-          properties: getRecordsParamProps,
+          properties: listRecordsParamProps,
         },
         output: {
           encoding: "application/json",
@@ -622,71 +638,6 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
     },
   });
 
-  // --- getUsers ---
-  writeLexicon(`${collection}.getUsers`, {
-    lexicon: 1,
-    id: `${collection}.getUsers`,
-    defs: {
-      main: {
-        type: "query",
-        description: `List users who have ${collection} records`,
-        parameters: {
-          type: "params",
-          properties: {
-            limit: { type: "integer", minimum: 1, maximum: 100, default: 50 },
-            cursor: { type: "string" },
-          },
-        },
-        output: {
-          encoding: "application/json",
-          schema: {
-            type: "object",
-            required: ["users"],
-            properties: {
-              users: {
-                type: "array",
-                items: { type: "ref", ref: "#userRecord" },
-              },
-              cursor: { type: "string" },
-            },
-          },
-        },
-      },
-      userRecord: {
-        type: "object",
-        required: ["did", "record_count"],
-        properties: {
-          did: { type: "string", format: "did" },
-          record_count: { type: "integer" },
-        },
-      },
-    },
-  });
-
-  // --- getStats ---
-  writeLexicon(`${collection}.getStats`, {
-    lexicon: 1,
-    id: `${collection}.getStats`,
-    defs: {
-      main: {
-        type: "query",
-        description: `Get stats for ${collection}`,
-        output: {
-          encoding: "application/json",
-          schema: {
-            type: "object",
-            required: ["collection", "unique_users", "total_records"],
-            properties: {
-              collection: { type: "string" },
-              unique_users: { type: "integer" },
-              total_records: { type: "integer" },
-              last_record_time_us: { type: "integer" },
-            },
-          },
-        },
-      },
-    },
-  });
 
   // --- Custom queries ---
   for (const queryName of Object.keys(colConfig.queries ?? {})) {

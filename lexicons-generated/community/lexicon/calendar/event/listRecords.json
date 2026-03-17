@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "community.lexicon.calendar.event.getRecords",
+  "id": "community.lexicon.calendar.event.listRecords",
   "defs": {
     "main": {
       "type": "query",
@@ -76,12 +76,6 @@
             "maximum": 50,
             "description": "Number of rsvps records to embed per record"
           },
-          "rsvpsPreview": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 50,
-            "description": "Number of rsvps previews per record"
-          },
           "rsvpsInterestedCountMin": {
             "type": "integer",
             "description": "Minimum rsvps count where status = interested"
@@ -93,6 +87,31 @@
           "rsvpsNotgoingCountMin": {
             "type": "integer",
             "description": "Minimum rsvps count where status = notgoing"
+          },
+          "sort": {
+            "type": "string",
+            "knownValues": [
+              "mode",
+              "name",
+              "endsAt",
+              "status",
+              "startsAt",
+              "createdAt",
+              "description",
+              "rsvpsCount",
+              "rsvpsInterestedCount",
+              "rsvpsGoingCount",
+              "rsvpsNotgoingCount"
+            ],
+            "description": "Field to sort by (default: time_us)"
+          },
+          "order": {
+            "type": "string",
+            "knownValues": [
+              "asc",
+              "desc"
+            ],
+            "description": "Sort direction (default: desc for dates/numbers/counts, asc for strings)"
           }
         }
       },
@@ -280,11 +299,8 @@
           "type": "string"
         },
         "record": {
-          "type": "union",
-          "refs": [
-            "#appBskyActorProfile",
-            "#appBlentoProfile"
-          ]
+          "type": "ref",
+          "ref": "#appBskyActorProfile"
         }
       }
     },
@@ -348,27 +364,6 @@
         "joinedViaStarterPack": {
           "ref": "com.atproto.repo.strongRef",
           "type": "ref"
-        }
-      }
-    },
-    "appBlentoProfile": {
-      "type": "object",
-      "properties": {
-        "displayName": {
-          "type": "string",
-          "maxLength": 640
-        },
-        "description": {
-          "type": "string",
-          "maxLength": 2560
-        },
-        "avatar": {
-          "type": "blob",
-          "accept": [
-            "image/png",
-            "image/jpeg"
-          ],
-          "maxSize": 1000000
         }
       }
     }

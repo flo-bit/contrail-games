@@ -11,7 +11,9 @@
     "generate:pull": "tsx scripts/generate-lexicons.ts && lex-cli pull && tsx scripts/generate-lexicons.ts && lex-cli pull && lex-cli generate",
     "typecheck": "tsc --noEmit",
     "ingest": "curl -s http://localhost:8787/__scheduled?cron=*/1+*+*+*+*",
-    "sync": "tsx scripts/sync.ts"
+    "sync": "tsx scripts/sync.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@atcute/atproto": "^3.1.10",

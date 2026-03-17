@@ -22,15 +22,19 @@ export function parseHydrateParams(
   return hydrates;
 }
 
+// Per-relation hydrate result: array for ungrouped, Record<group, array> for grouped
+export type HydrateResult = Record<string, Record<string, any[] | Record<string, any[]>>>;
+
 export async function resolveHydrates(
   db: Database,
   relations: Record<string, RelationConfig>,
   requested: Record<string, number>,
   records: RecordRow[]
-): Promise<Record<string, Record<string, Record<string, any[]>>>> {
+): Promise<HydrateResult> {
   if (Object.keys(requested).length === 0 || records.length === 0) return {};
 
-  const result: Record<string, Record<string, Record<string, any[]>>> = {};
+  // Accumulate grouped results first, then flatten ungrouped ones
+  const grouped: Record<string, Record<string, Record<string, any[]>>> = {};
 
   for (const [relName, hydrateLimit] of Object.entries(requested)) {
     const rel = relations[relName];
@@ -43,7 +47,9 @@ export async function resolveHydrates(
 
     if (matchValues.length === 0) continue;
 
-    const maxRows = matchValues.length * hydrateLimit;
+    // Fetch more rows than needed since the limit applies per-group, not total
+    const groupCount = rel.groupBy ? 10 : 1; // estimate; overfetch is fine
+    const maxRows = matchValues.length * hydrateLimit * groupCount;
     const relatedRows = await batchedInQuery<RecordRow>(
       db,
       `SELECT uri, did, collection, rkey, record, time_us FROM records
@@ -65,19 +71,32 @@ export async function resolveHydrates(
 
       const groupValue = rel.groupBy
         ? String(getNestedValue(record, rel.groupBy) ?? "_other")
-        : "_all";
+        : "_flat";
 
       for (const parentUri of parentUris) {
         const targetUri = matchMode === "did" ? parentUri : matchedValue;
 
-        if (!result[targetUri]) result[targetUri] = {};
-        if (!result[targetUri][relName]) result[targetUri][relName] = {};
-        if (!result[targetUri][relName][groupValue]) result[targetUri][relName][groupValue] = [];
+        if (!grouped[targetUri]) grouped[targetUri] = {};
+        if (!grouped[targetUri][relName]) grouped[targetUri][relName] = {};
+        if (!grouped[targetUri][relName][groupValue]) grouped[targetUri][relName][groupValue] = [];
 
-        const group = result[targetUri][relName][groupValue];
+        const group = grouped[targetUri][relName][groupValue];
         if (group.length < hydrateLimit) {
           group.push(formatRecord(row));
         }
+      }
+    }
+  }
+
+  // Convert to final shape: ungrouped relations become flat arrays
+  const result: HydrateResult = {};
+  for (const [uri, rels] of Object.entries(grouped)) {
+    result[uri] = {};
+    for (const [relName, groups] of Object.entries(rels)) {
+      if (relations[relName].groupBy) {
+        result[uri][relName] = groups;
+      } else {
+        result[uri][relName] = groups["_flat"] ?? [];
       }
     }
   }
