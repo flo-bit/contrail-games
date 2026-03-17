@@ -2,9 +2,7 @@ node_modules
 .wrangler
 dist
 
-# Generated
+# Generated (internal only)
 lex.config.js
-lexicons-pulled/
-lexicons-generated/
 src/lexicon-types/
 src/core/queryable.generated.ts

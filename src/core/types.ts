@@ -47,8 +47,7 @@ export const DEFAULT_JETSTREAMS = [
 ];
 
 export const DEFAULT_RELAYS = [
-  "https://relay1.us-east.bsky.network",
-  "https://relay2.us-east.bsky.network",
+  "https://relay1.us-east.bsky.network"
 ];
 
 export interface ContrailConfig {

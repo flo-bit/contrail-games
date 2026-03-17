@@ -1,19 +1,22 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "contrail",
-  "main": "src/adapters/worker.ts",
-  "compatibility_date": "2025-12-25",
-  "observability": {
-    "enabled": true
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "contrail",
-      "database_id": "FILL_IN_DATABASE_ID"
-    }
-  ],
-  "triggers": {
-    "crons": ["*/1 * * * *"]
-  }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "contrail",
+	"main": "src/adapters/worker.ts",
+	"compatibility_date": "2025-12-25",
+	"observability": {
+		"enabled": true
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "contrail",
+			"database_id": "8e4b8951-bdc1-4906-a68a-9987d89898c4",
+			"remote": true
+		}
+	],
+	"triggers": {
+		"crons": [
+			"*/1 * * * *"
+		]
+	}
 }

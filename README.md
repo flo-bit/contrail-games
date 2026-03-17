@@ -20,9 +20,8 @@ pnpm sync            # discover users + backfill records from PDS
 ### Production
 
 ```bash
-wrangler d1 create contrail
+npx wrangler d1 create contrail
 # Add database_id to wrangler.toml
-wrangler secret put ADMIN_SECRET
 pnpm deploy
 # to sync in production, run it locally but set your d1 to remote, then run
 pnpm sync
@@ -137,4 +136,58 @@ All endpoints at `/xrpc/{nsid}.{method}`:
 
 # RSVPs for a specific event with profiles
 /xrpc/community.lexicon.calendar.rsvp.getRecords?subjectUri=at://did:plc:.../community.lexicon.calendar.event/...&profiles=true
+```
+
+## Typesafe Client Usage
+
+You can get fully typed XRPC queries for any Contrail instance using [`@atcute/lex-cli`](https://github.com/mary-ext/atcute). The lexicon files are committed to the repo, so you can pull them directly via the git source.
+
+### Setup
+
+```bash
+npm install @atcute/client @atcute/lexicons @atcute/lex-cli
+```
+
+Create a `lex.config.js` pointing at the Contrail instance's repo:
+
+```js
+import { defineLexiconConfig } from "@atcute/lex-cli";
+
+export default defineLexiconConfig({
+  outdir: "src/lexicon-types/",
+  imports: ["@atcute/atproto"],
+  pull: {
+    outdir: "lexicons/",
+    sources: [
+      {
+        type: "git",
+        remote: "https://github.com/USER/REPO.git", // the Contrail instance repo
+        pattern: ["lexicons-generated/**/*.json", "lexicons-pulled/**/*.json"],
+      },
+    ],
+  },
+});
+```
+
+Then pull and generate:
+
+```bash
+npx lex-cli pull && npx lex-cli generate
+```
+
+### Usage
+
+Import the generated types (side-effect import registers them with `@atcute/client`), then query with full type safety:
+
+```ts
+import "./lexicon-types/index.js"; // registers ambient types
+import { XRPC } from "@atcute/client";
+
+const rpc = new XRPC({ handler: /* your handler */ });
+
+const { data } = await rpc.get("community.lexicon.calendar.event.getRecords", {
+  params: { status: "going", limit: 10 }, // typed params
+});
+
+data.records // typed as Record[]
 ```

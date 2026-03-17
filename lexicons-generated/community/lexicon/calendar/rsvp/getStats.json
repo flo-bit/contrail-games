@@ -1,0 +1,35 @@
+{
+  "lexicon": 1,
+  "id": "community.lexicon.calendar.rsvp.getStats",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Get stats for community.lexicon.calendar.rsvp",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "collection",
+            "unique_users",
+            "total_records"
+          ],
+          "properties": {
+            "collection": {
+              "type": "string"
+            },
+            "unique_users": {
+              "type": "integer"
+            },
+            "total_records": {
+              "type": "integer"
+            },
+            "last_record_time_us": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    }
+  }
+}
