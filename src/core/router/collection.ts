@@ -4,7 +4,7 @@ import { getCollectionNames } from "../types";
 import { resolvedQueryable, resolvedRelationsMap } from "../queryable.generated";
 import { queryRecords, getUsersByCollection } from "../db";
 import { backfillUser } from "../backfill";
-import { resolveHydrates } from "./hydrate";
+import { resolveHydrates, parseHydrateParams } from "./hydrate";
 import { resolveProfiles, collectDids } from "./profiles";
 import { resolveActor } from "../identity";
 import type { FormattedRecord } from "./helpers";
@@ -80,10 +80,11 @@ export function registerCollectionRoutes(
       });
 
       const rows = result.records;
+      const hydrateRequested = parseHydrateParams(params, relations);
       const hydrates = await resolveHydrates(
         db,
         relations,
-        params.getAll("hydrate"),
+        hydrateRequested,
         rows
       );
 
@@ -91,7 +92,11 @@ export function registerCollectionRoutes(
         const formatted = formatRecord(row);
         flattenCounts(formatted, row.counts, collection, relations);
         const h = hydrates[row.uri];
-        if (h) formatted.hydrates = h;
+        if (h) {
+          for (const [relName, groups] of Object.entries(h)) {
+            formatted[relName] = groups;
+          }
+        }
         return formatted;
       });
 
@@ -135,14 +140,19 @@ export function registerCollectionRoutes(
       const params = new URL(c.req.url).searchParams;
       const wantProfilesSingle = params.get("profiles") === "true";
 
+      const hydrateRequested = parseHydrateParams(params, relations);
       const hydrates = await resolveHydrates(
         db,
         relations,
-        params.getAll("hydrate"),
+        hydrateRequested,
         [row]
       );
       const h = hydrates[row.uri];
-      if (h) formatted.hydrates = h;
+      if (h) {
+        for (const [relName, groups] of Object.entries(h)) {
+          (formatted as any)[relName] = groups;
+        }
+      }
 
       const allDids = collectDids([row], hydrates);
       const profileMap = wantProfilesSingle

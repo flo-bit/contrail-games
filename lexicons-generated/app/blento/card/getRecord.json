@@ -19,10 +19,6 @@
           "profiles": {
             "type": "boolean",
             "description": "Include profile + identity info keyed by DID"
-          },
-          "hydrate": {
-            "type": "string",
-            "description": "Embed related records, as relName:limit (e.g. rsvps:5). Repeatable."
           }
         }
       },

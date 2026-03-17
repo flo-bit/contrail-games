@@ -4,17 +4,19 @@ import { batchedInQuery, formatRecord } from "./helpers";
 
 // --- Hydration: embed related records that point at the parent ---
 
-function parseHydrateParams(
-  values: string[],
+export function parseHydrateParams(
+  params: URLSearchParams,
   relations: Record<string, RelationConfig>
 ): Record<string, number> {
   const hydrates: Record<string, number> = {};
-  for (const val of values) {
-    const sep = val.indexOf(":");
-    const name = sep === -1 ? val : val.slice(0, sep);
-    const limit = sep === -1 ? 10 : parseInt(val.slice(sep + 1), 10);
-    if (relations[name] && !isNaN(limit) && limit > 0) {
-      hydrates[name] = limit;
+  const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  for (const relName of Object.keys(relations)) {
+    const val = params.get(`hydrate${capitalize(relName)}`);
+    if (val) {
+      const limit = parseInt(val, 10);
+      if (!isNaN(limit) && limit > 0) {
+        hydrates[relName] = limit;
+      }
     }
   }
   return hydrates;
@@ -23,10 +25,9 @@ function parseHydrateParams(
 export async function resolveHydrates(
   db: Database,
   relations: Record<string, RelationConfig>,
-  hydrateParams: string[],
+  requested: Record<string, number>,
   records: RecordRow[]
 ): Promise<Record<string, Record<string, Record<string, any[]>>>> {
-  const requested = parseHydrateParams(hydrateParams, relations);
   if (Object.keys(requested).length === 0 || records.length === 0) return {};
 
   const result: Record<string, Record<string, Record<string, any[]>>> = {};

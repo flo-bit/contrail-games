@@ -154,7 +154,18 @@ interface CountField {
   description: string;
 }
 
-function buildRecordDef(collectionRef: string | null, countFields?: CountField[], hasRelations?: boolean) {
+interface RelationDef {
+  relName: string;
+  collection: string;
+  groupBy?: string;
+  groups: Record<string, string>; // shortName → full token
+}
+
+function buildRecordDef(
+  collectionRef: string | null,
+  countFields?: CountField[],
+  relationDefs?: RelationDef[]
+) {
   const properties: Record<string, any> = {
     uri: { type: "string", format: "at-uri" },
     did: { type: "string", format: "did" },
@@ -173,11 +184,14 @@ function buildRecordDef(collectionRef: string | null, countFields?: CountField[]
     }
   }
 
-  if (hasRelations) {
-    properties.hydrates = {
-      type: "unknown",
-      description: "Hydrated related records, grouped by relation name and groupBy value",
-    };
+  if (relationDefs && relationDefs.length > 0) {
+    for (const rd of relationDefs) {
+      const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+      properties[rd.relName] = {
+        type: "ref",
+        ref: `#hydrate${capitalize(rd.relName)}`,
+      };
+    }
   }
 
   return {
@@ -185,6 +199,62 @@ function buildRecordDef(collectionRef: string | null, countFields?: CountField[]
     required: ["uri", "did", "collection", "rkey", "time_us"],
     properties,
   };
+}
+
+function buildHydrateDefs(relationDefs: RelationDef[]): Record<string, any> {
+  const defs: Record<string, any> = {};
+  const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+  for (const rd of relationDefs) {
+    const relCollectionRef = getCollectionLexiconRef(rd.collection);
+
+    // Def for each hydrated record
+    const recordDefName = `hydrate${capitalize(rd.relName)}Record`;
+    defs[recordDefName] = {
+      type: "object",
+      required: ["uri", "did", "collection", "rkey", "time_us"],
+      properties: {
+        uri: { type: "string", format: "at-uri" },
+        did: { type: "string", format: "did" },
+        collection: { type: "string", format: "nsid" },
+        rkey: { type: "string" },
+        cid: { type: "string" },
+        record: relCollectionRef
+          ? { type: "ref", ref: relCollectionRef }
+          : { type: "unknown" },
+        time_us: { type: "integer" },
+      },
+    };
+
+    // Def for the group structure
+    const groupDefName = `hydrate${capitalize(rd.relName)}`;
+    const groupProperties: Record<string, any> = {};
+
+    if (rd.groupBy && Object.keys(rd.groups).length > 0) {
+      for (const shortName of Object.keys(rd.groups)) {
+        groupProperties[shortName] = {
+          type: "array",
+          items: { type: "ref", ref: `#${recordDefName}` },
+        };
+      }
+      groupProperties["_other"] = {
+        type: "array",
+        items: { type: "ref", ref: `#${recordDefName}` },
+      };
+    } else {
+      groupProperties["_all"] = {
+        type: "array",
+        items: { type: "ref", ref: `#${recordDefName}` },
+      };
+    }
+
+    defs[groupDefName] = {
+      type: "object",
+      properties: groupProperties,
+    };
+  }
+
+  return defs;
 }
 
 // Read the inner record object schema from a collection's lexicon
@@ -392,7 +462,6 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
     cursor: { type: "string" },
     actor: { type: "string", format: "at-identifier", description: "Filter by DID or handle (triggers on-demand backfill)" },
     profiles: { type: "boolean", description: "Include profile + identity info keyed by DID" },
-    hydrate: { type: "string", description: "Embed related records, as relName:limit (e.g. rsvps:5). Repeatable." },
   };
 
   for (const [field, fieldConfig] of Object.entries(merged)) {
@@ -414,15 +483,25 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
     }
   }
 
-  // Build count fields and params from relations + knownValues
+  // Build count fields, hydrate params, and relation defs from relations + knownValues
   const countFields: CountField[] = [];
+  const relationDefs: RelationDef[] = [];
   for (const [relName, rel] of Object.entries(colConfig.relations ?? {})) {
-    // Total count
     const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+    // Total count
     countFields.push({ name: `${relName}Count`, description: `Total ${relName} count` });
     getRecordsParamProps[`${relName}CountMin`] = {
       type: "integer",
       description: `Minimum total ${relName} count`,
+    };
+
+    // Per-relation hydrate param (e.g. hydrateRsvps=5)
+    getRecordsParamProps[`hydrate${capitalize(relName)}`] = {
+      type: "integer",
+      minimum: 1,
+      maximum: 50,
+      description: `Number of ${relName} records to embed per record`,
     };
 
     getRecordsParamProps[`${relName}Preview`] = {
@@ -433,9 +512,9 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
     };
 
     // Per-group counts from knownValues
+    const groupMapping: Record<string, string> = {};
     if (rel.groupBy) {
       const knownValues = getKnownValues(rel.collection, rel.groupBy);
-      const groupMapping: Record<string, string> = {};
       for (const token of knownValues) {
         const shortName = tokenShortName(token);
         groupMapping[shortName] = token;
@@ -456,9 +535,16 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
         groups: groupMapping,
       };
     }
+
+    relationDefs.push({
+      relName,
+      collection: rel.collection,
+      groupBy: rel.groupBy,
+      groups: groupMapping,
+    });
   }
 
-  const hasRelations = Object.keys(colConfig.relations ?? {}).length > 0;
+  const hydrateDefs = buildHydrateDefs(relationDefs);
 
   writeLexicon(`${collection}.getRecords`, {
     lexicon: 1,
@@ -484,7 +570,8 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
           },
         },
       },
-      record: buildRecordDef(collectionRef, countFields, hasRelations),
+      record: buildRecordDef(collectionRef, countFields, relationDefs),
+      ...hydrateDefs,
       ...profileDefs(),
     },
   });
@@ -493,8 +580,18 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
   const getRecordParamProps: Record<string, any> = {
     uri: { type: "string", format: "at-uri", description: "AT URI of the record" },
     profiles: { type: "boolean", description: "Include profile + identity info keyed by DID" },
-    hydrate: { type: "string", description: "Embed related records, as relName:limit (e.g. rsvps:5). Repeatable." },
   };
+
+  // Add per-relation hydrate params to getRecord too
+  for (const rd of relationDefs) {
+    const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+    getRecordParamProps[`hydrate${capitalize(rd.relName)}`] = {
+      type: "integer",
+      minimum: 1,
+      maximum: 50,
+      description: `Number of ${rd.relName} records to embed`,
+    };
+  }
 
   writeLexicon(`${collection}.getRecord`, {
     lexicon: 1,
@@ -514,12 +611,13 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
             type: "object",
             required: ["uri", "did", "collection", "rkey", "time_us"],
             properties: {
-              ...buildRecordDef(collectionRef, countFields, hasRelations).properties,
+              ...buildRecordDef(collectionRef, countFields, relationDefs).properties,
               profiles: { type: "array", items: { type: "ref", ref: "#profileEntry" } },
             },
           },
         },
       },
+      ...hydrateDefs,
       ...profileDefs(),
     },
   });

@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(pnpm generate:*)",
-      "Bash(pnpm typecheck:*)"
+      "Bash(pnpm typecheck:*)",
+      "Bash(npx tsx:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }
