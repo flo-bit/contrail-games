@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "com.example.admin.reset",
+  "id": "rsvp.atmo.admin.reset",
   "defs": {
     "main": {
       "type": "query",

@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "com.example.admin.sync",
+  "id": "rsvp.atmo.admin.sync",
   "defs": {
     "main": {
       "type": "query",

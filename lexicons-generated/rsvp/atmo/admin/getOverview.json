@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "com.example.admin.getOverview",
+  "id": "rsvp.atmo.admin.getOverview",
   "defs": {
     "main": {
       "type": "query",
