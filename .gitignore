@@ -1,0 +1,10 @@
+node_modules
+.wrangler
+dist
+
+# Generated
+lex.config.js
+lexicons-pulled/
+lexicons-generated/
+src/lexicon-types/
+src/core/queryable.generated.ts

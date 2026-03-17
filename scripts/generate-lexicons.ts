@@ -1,0 +1,551 @@
+/**
+ * Generates lexicon TypeScript files from the Contrail config.
+ *
+ * For each collection, generates:
+ *   - {nsid}.getRecords  — query with queryable field params
+ *   - {nsid}.getUsers    — query with limit/cursor
+ *   - {nsid}.getStats    — query returning collection stats
+ *
+ * Plus admin endpoints:
+ *   - contrail.admin.getCursor
+ *   - contrail.admin.getOverview
+ *   - contrail.admin.discover
+ *   - contrail.admin.backfill
+ *
+ * Usage: npx tsx scripts/generate-lexicons.ts
+ */
+
+import { writeFileSync, mkdirSync, rmSync, existsSync, readFileSync, readdirSync } from "fs";
+import { join } from "path";
+import { config } from "../src/config";
+
+const ROOT_DIR = join(__dirname, "..");
+const USER_LEXICONS_DIR = join(ROOT_DIR, "lexicons");
+const PULLED_LEXICONS_DIR = join(ROOT_DIR, "lexicons-pulled");
+const GENERATED_DIR = join(ROOT_DIR, "lexicons-generated");
+
+function fieldToParam(field: string): string {
+  return field.replace(/\.(\w)/g, (_, c) => c.toUpperCase());
+}
+
+interface QueryableField {
+  type?: "range";
+}
+
+// Find a collection's lexicon file (user-provided takes priority over pulled)
+function findCollectionLexicon(collection: string): string | null {
+  const segments = collection.split(".");
+  for (const dir of [USER_LEXICONS_DIR, PULLED_LEXICONS_DIR]) {
+    const filePath = join(dir, ...segments) + ".json";
+    if (existsSync(filePath)) return filePath;
+  }
+  return null;
+}
+
+// Analyze a collection's lexicon and return auto-detected queryable fields
+function detectQueryableFields(collection: string): Record<string, QueryableField> {
+  const filePath = findCollectionLexicon(collection);
+  if (!filePath) return {};
+  try {
+    const doc = JSON.parse(readFileSync(filePath, "utf-8"));
+    const mainRecord = doc.defs?.main?.record;
+    if (!mainRecord?.properties) return {};
+    return analyzeProperties(doc.defs, mainRecord.properties, "");
+  } catch {
+    return {};
+  }
+}
+
+function analyzeProperties(
+  defs: Record<string, any>,
+  properties: Record<string, any>,
+  prefix: string
+): Record<string, QueryableField> {
+  const result: Record<string, QueryableField> = {};
+
+  for (const [field, def] of Object.entries(properties)) {
+    const path = prefix ? `${prefix}.${field}` : field;
+
+    if (def.type === "string") {
+      if (def.format === "datetime") {
+        result[path] = { type: "range" };
+      } else if (def.format !== "uri" && def.format !== "at-uri") {
+        // Regular strings (enums, free text) → equality
+        result[path] = {};
+      }
+    } else if (def.type === "integer" || def.type === "number") {
+      result[path] = { type: "range" };
+    } else if (def.type === "ref" && def.ref === "com.atproto.repo.strongRef") {
+      result[`${path}.uri`] = {};
+    } else if (def.type === "union" && Array.isArray(def.refs) && def.refs.includes("com.atproto.repo.strongRef")) {
+      result[`${path}.uri`] = {};
+    } else if (def.type === "ref" && def.ref) {
+      // Resolve local ref (e.g. #mode → defs.mode)
+      const refId = def.ref.includes("#") ? def.ref.split("#")[1] : null;
+      if (refId && defs[refId]) {
+        const resolved = defs[refId];
+        if (resolved.type === "string") {
+          // String enum (knownValues) → equality
+          result[path] = {};
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+// Clean generated dir (user-provided lexicons/ is untouched)
+rmSync(GENERATED_DIR, { recursive: true, force: true });
+
+function nsidToPath(nsid: string): string {
+  return join(GENERATED_DIR, ...nsid.split(".")) + ".json";
+}
+
+// Check if a collection lexicon exists (user-provided or pulled)
+function getCollectionLexiconRef(collection: string): string | null {
+  const filePath = findCollectionLexicon(collection);
+  if (!filePath) return null;
+  try {
+    const doc = JSON.parse(readFileSync(filePath, "utf-8"));
+    if (doc.defs?.main) return `${collection}#main`;
+  } catch {}
+  return null;
+}
+
+function ensureDir(filePath: string) {
+  mkdirSync(join(filePath, ".."), { recursive: true });
+}
+
+function writeLexicon(nsid: string, doc: object) {
+  const filePath = nsidToPath(nsid);
+  ensureDir(filePath);
+  writeFileSync(filePath, JSON.stringify(doc, null, 2) + "\n");
+  console.log(`  ${nsid}`);
+}
+
+// Build record output shape, optionally typing the record field
+function buildRecordDef(collectionRef: string | null) {
+  return {
+    type: "object",
+    required: ["uri", "did", "collection", "rkey", "time_us"],
+    properties: {
+      uri: { type: "string", format: "at-uri" },
+      did: { type: "string", format: "did" },
+      collection: { type: "string", format: "nsid" },
+      rkey: { type: "string" },
+      cid: { type: "string" },
+      record: collectionRef
+        ? { type: "ref", ref: collectionRef }
+        : { type: "unknown" },
+      time_us: { type: "integer" },
+    },
+  };
+}
+
+// --- Admin endpoints ---
+
+console.log("Generating admin endpoints...");
+
+writeLexicon("contrail.admin.getCursor", {
+  lexicon: 1,
+  id: "contrail.admin.getCursor",
+  defs: {
+    main: {
+      type: "query",
+      description: "Get the current cursor position",
+      output: {
+        encoding: "application/json",
+        schema: {
+          type: "object",
+          properties: {
+            time_us: { type: "integer" },
+            date: { type: "string" },
+            seconds_ago: { type: "integer" },
+          },
+        },
+      },
+    },
+  },
+});
+
+writeLexicon("contrail.admin.getOverview", {
+  lexicon: 1,
+  id: "contrail.admin.getOverview",
+  defs: {
+    main: {
+      type: "query",
+      description: "Get an overview of all indexed collections",
+      output: {
+        encoding: "application/json",
+        schema: {
+          type: "object",
+          required: ["total_records", "collections"],
+          properties: {
+            total_records: { type: "integer" },
+            collections: {
+              type: "array",
+              items: { type: "ref", ref: "#collectionStats" },
+            },
+          },
+        },
+      },
+    },
+    collectionStats: {
+      type: "object",
+      required: ["collection", "records", "unique_users"],
+      properties: {
+        collection: { type: "string" },
+        records: { type: "integer" },
+        unique_users: { type: "integer" },
+      },
+    },
+  },
+});
+
+writeLexicon("contrail.admin.sync", {
+  lexicon: 1,
+  id: "contrail.admin.sync",
+  defs: {
+    main: {
+      type: "query",
+      description: "Discover users from relays and backfill their records from PDS",
+      parameters: {
+        type: "params",
+        properties: {
+          concurrency: {
+            type: "integer",
+            minimum: 1,
+            maximum: 50,
+            default: 10,
+          },
+        },
+      },
+      output: {
+        encoding: "application/json",
+        schema: {
+          type: "object",
+          required: ["discovered", "backfilled", "remaining", "done"],
+          properties: {
+            discovered: { type: "integer" },
+            backfilled: { type: "integer" },
+            remaining: { type: "integer" },
+            done: { type: "boolean" },
+          },
+        },
+      },
+    },
+  },
+});
+
+// --- Per-collection endpoints ---
+
+console.log("Generating collection endpoints...");
+
+// Collect resolved queryable fields for all collections
+const resolvedQueryable: Record<string, Record<string, { type?: "range" }>> = {};
+
+for (const [collection, colConfig] of Object.entries(config.collections)) {
+  const collectionRef = getCollectionLexiconRef(collection);
+  if (collectionRef) {
+    console.log(`    → ${collection} record typed via lexicon`);
+  }
+
+  // Auto-detect queryable fields from lexicon, then merge manual overrides
+  const autoDetected = detectQueryableFields(collection);
+  const manual = colConfig.queryable ?? {};
+  const merged = { ...autoDetected, ...manual };
+  resolvedQueryable[collection] = merged;
+
+  if (Object.keys(autoDetected).length > 0) {
+    const autoOnly = Object.keys(autoDetected).filter((k) => !manual[k]);
+    if (autoOnly.length > 0) {
+      console.log(`    → auto-detected queryable: ${autoOnly.join(", ")}`);
+    }
+  }
+
+  // --- getRecords ---
+  const getRecordsParamProps: Record<string, any> = {
+    limit: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+    cursor: { type: "string" },
+    did: { type: "string", format: "did" },
+    include: {
+      type: "string",
+      description: "Comma-separated include names",
+    },
+  };
+
+  for (const [field, fieldConfig] of Object.entries(merged)) {
+    if (fieldConfig.type !== "range") {
+      getRecordsParamProps[fieldToParam(field)] = {
+        type: "string",
+        description: `Filter by ${field}`,
+      };
+    }
+  }
+
+  getRecordsParamProps["min"] = {
+    type: "string",
+    description: "Min filter as field:value (range fields or count types). Repeatable.",
+  };
+  getRecordsParamProps["max"] = {
+    type: "string",
+    description: "Max filter as field:value (range fields). Repeatable.",
+  };
+
+  for (const relName of Object.keys(colConfig.relations ?? {})) {
+    getRecordsParamProps[`${relName}Preview`] = {
+      type: "integer",
+      minimum: 1,
+      maximum: 50,
+      description: `Number of ${relName} previews per record`,
+    };
+  }
+
+  writeLexicon(`${collection}.getRecords`, {
+    lexicon: 1,
+    id: `${collection}.getRecords`,
+    defs: {
+      main: {
+        type: "query",
+        description: `Query ${collection} records with filters`,
+        parameters: {
+          type: "params",
+          properties: getRecordsParamProps,
+        },
+        output: {
+          encoding: "application/json",
+          schema: {
+            type: "object",
+            required: ["records"],
+            properties: {
+              records: { type: "array", items: { type: "ref", ref: "#record" } },
+              cursor: { type: "string" },
+            },
+          },
+        },
+      },
+      record: buildRecordDef(collectionRef),
+    },
+  });
+
+  // --- getRecord ---
+  const getRecordParamProps: Record<string, any> = {
+    uri: { type: "string", format: "at-uri", description: "AT URI of the record" },
+  };
+  for (const relName of Object.keys(colConfig.relations ?? {})) {
+    getRecordParamProps[`${relName}Preview`] = {
+      type: "integer",
+      minimum: 1,
+      maximum: 50,
+      description: `Number of ${relName} previews per group`,
+    };
+  }
+
+  writeLexicon(`${collection}.getRecord`, {
+    lexicon: 1,
+    id: `${collection}.getRecord`,
+    defs: {
+      main: {
+        type: "query",
+        description: `Get a single ${collection} record by AT URI`,
+        parameters: {
+          type: "params",
+          required: ["uri"],
+          properties: getRecordParamProps,
+        },
+        output: {
+          encoding: "application/json",
+          schema: { type: "ref", ref: "#record" },
+        },
+      },
+      record: buildRecordDef(collectionRef),
+    },
+  });
+
+  // --- getUsers ---
+  writeLexicon(`${collection}.getUsers`, {
+    lexicon: 1,
+    id: `${collection}.getUsers`,
+    defs: {
+      main: {
+        type: "query",
+        description: `List users who have ${collection} records`,
+        parameters: {
+          type: "params",
+          properties: {
+            limit: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+            cursor: { type: "string" },
+          },
+        },
+        output: {
+          encoding: "application/json",
+          schema: {
+            type: "object",
+            required: ["users"],
+            properties: {
+              users: {
+                type: "array",
+                items: { type: "ref", ref: "#userRecord" },
+              },
+              cursor: { type: "string" },
+            },
+          },
+        },
+      },
+      userRecord: {
+        type: "object",
+        required: ["did", "record_count"],
+        properties: {
+          did: { type: "string", format: "did" },
+          record_count: { type: "integer" },
+        },
+      },
+    },
+  });
+
+  // --- getStats ---
+  writeLexicon(`${collection}.getStats`, {
+    lexicon: 1,
+    id: `${collection}.getStats`,
+    defs: {
+      main: {
+        type: "query",
+        description: `Get stats for ${collection}`,
+        output: {
+          encoding: "application/json",
+          schema: {
+            type: "object",
+            required: ["collection", "unique_users", "total_records"],
+            properties: {
+              collection: { type: "string" },
+              unique_users: { type: "integer" },
+              total_records: { type: "integer" },
+              last_record_time_us: { type: "integer" },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  // --- Custom queries ---
+  for (const queryName of Object.keys(colConfig.queries ?? {})) {
+    writeLexicon(`${collection}.${queryName}`, {
+      lexicon: 1,
+      id: `${collection}.${queryName}`,
+      defs: {
+        main: {
+          type: "query",
+          description: `Custom query: ${queryName}`,
+          output: {
+            encoding: "application/json",
+            schema: { type: "object", properties: {} },
+          },
+        },
+      },
+    });
+  }
+}
+
+// --- Auto-generate lex.config.js ---
+
+// Collect all collection NSIDs from config
+const collectionNsids = Object.keys(config.collections);
+
+// Scan pulled lexicons for external refs to find transitive deps
+function findRefsInLexicon(filePath: string): string[] {
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    const refs: string[] = [];
+    // Match all "ref": "some.nsid.here" or "refs": ["some.nsid.here"]
+    const refPattern = /"ref":\s*"([a-z][a-zA-Z0-9]*(?:\.[a-zA-Z0-9]+)+)(?:#\w+)?"/g;
+    let match;
+    while ((match = refPattern.exec(content)) !== null) {
+      refs.push(match[1]);
+    }
+    // Also match refs arrays
+    const refsArrayPattern = /"refs":\s*\[([^\]]+)\]/g;
+    while ((match = refsArrayPattern.exec(content)) !== null) {
+      const inner = match[1];
+      const nsidPattern = /"([a-z][a-zA-Z0-9]*(?:\.[a-zA-Z0-9]+)+)(?:#\w+)?"/g;
+      let innerMatch;
+      while ((innerMatch = nsidPattern.exec(inner)) !== null) {
+        refs.push(innerMatch[1]);
+      }
+    }
+    return refs;
+  } catch {
+    return [];
+  }
+}
+
+function scanLexiconsDir(dir: string): string[] {
+  const files: string[] = [];
+  if (!existsSync(dir)) return files;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...scanLexiconsDir(fullPath));
+    } else if (entry.name.endsWith(".json")) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+// Find all NSIDs referenced by pulled lexicons
+const pulledFiles = [
+  ...scanLexiconsDir(USER_LEXICONS_DIR),
+  ...scanLexiconsDir(PULLED_LEXICONS_DIR),
+];
+const allRefs = new Set<string>();
+for (const file of pulledFiles) {
+  for (const ref of findRefsInLexicon(file)) {
+    allRefs.add(ref);
+  }
+}
+
+// Merge: collection NSIDs + transitive deps (excluding com.atproto.* which comes from imports)
+const pullNsids = new Set(collectionNsids);
+for (const ref of allRefs) {
+  if (!ref.startsWith("com.atproto.")) {
+    pullNsids.add(ref);
+  }
+}
+
+const sortedNsids = [...pullNsids].sort();
+
+const lexConfigContent = `import { defineLexiconConfig } from "@atcute/lex-cli";
+
+export default defineLexiconConfig({
+  files: ["lexicons/**/*.json", "lexicons-pulled/**/*.json", "lexicons-generated/**/*.json"],
+  outdir: "src/lexicon-types/",
+  imports: ["@atcute/atproto"],
+  pull: {
+    outdir: "lexicons-pulled/",
+    sources: [
+      {
+        type: "atproto",
+        mode: "nsids",
+        nsids: ${JSON.stringify(sortedNsids, null, 10).replace(/^/gm, "        ").trim()},
+      },
+    ],
+  },
+});
+`;
+
+writeFileSync(join(ROOT_DIR, "lex.config.js"), lexConfigContent);
+console.log(`\nGenerated lex.config.js with ${sortedNsids.length} pull NSIDs`);
+
+// Generate resolved queryable config for runtime use
+const queryableContent = `// Auto-generated — do not edit. Run \`pnpm generate\` to regenerate.
+import type { QueryableField } from "./types";
+
+export const resolvedQueryable: Record<string, Record<string, QueryableField>> = ${JSON.stringify(resolvedQueryable, null, 2)};
+`;
+
+writeFileSync(join(ROOT_DIR, "src", "core", "queryable.generated.ts"), queryableContent);
+console.log("Generated src/core/queryable.generated.ts");
+
+console.log("\nDone!");

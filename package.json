@@ -1,0 +1,35 @@
+{
+  "name": "contrail",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev --test-scheduled",
+    "dev:auto": "tsx scripts/dev.ts",
+    "deploy": "wrangler deploy",
+    "clean": "tsx scripts/clean.ts",
+    "generate": "tsx scripts/generate-lexicons.ts && lex-cli generate",
+    "generate:pull": "tsx scripts/generate-lexicons.ts && lex-cli pull && tsx scripts/generate-lexicons.ts && lex-cli pull && lex-cli generate",
+    "typecheck": "tsc --noEmit",
+    "ingest": "curl -s http://localhost:8787/__scheduled?cron=*/1+*+*+*+*",
+    "sync": "tsx scripts/sync.ts"
+  },
+  "dependencies": {
+    "@atcute/atproto": "^3.1.10",
+    "@atcute/client": "^4.2.1",
+    "@atcute/identity-resolver": "^1.2.2",
+    "@atcute/jetstream": "^1.0.2",
+    "@atcute/lexicons": "^1.2.7",
+    "hono": "^4.12.8"
+  },
+  "devDependencies": {
+    "@atcute/lex-cli": "^2.5.3",
+    "@atcute/lexicon-doc": "^2.1.2",
+    "@cloudflare/workers-types": "^4.20250124.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.8.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.63.0"
+  }
+}
