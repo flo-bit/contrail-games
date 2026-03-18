@@ -7,6 +7,7 @@ export function createTestDb(): Database {
 }
 
 export const TEST_CONFIG: ContrailConfig = {
+  namespace: "com.example",
   collections: {
     "community.lexicon.calendar.event": {
       queryable: {
@@ -22,7 +23,7 @@ export const TEST_CONFIG: ContrailConfig = {
       },
     },
     "community.lexicon.calendar.rsvp": {
-      relations: {
+      references: {
         event: {
           collection: "community.lexicon.calendar.event",
           field: "subject.uri",

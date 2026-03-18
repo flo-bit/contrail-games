@@ -1,25 +1,36 @@
-import type { RelationConfig, RecordRow, Database } from "../types";
+import type { RelationConfig, ReferenceConfig, RecordRow, Database } from "../types";
 import { getNestedValue, getRelationField } from "../types";
 import { batchedInQuery, formatRecord } from "./helpers";
 
-// --- Hydration: embed related records that point at the parent ---
+// --- Hydration: embed related records ---
 
 export function parseHydrateParams(
   params: URLSearchParams,
-  relations: Record<string, RelationConfig>
-): Record<string, number> {
-  const hydrates: Record<string, number> = {};
+  relations: Record<string, RelationConfig>,
+  references: Record<string, ReferenceConfig>
+): { relations: Record<string, number>; references: Set<string> } {
+  const relHydrates: Record<string, number> = {};
+  const refHydrates = new Set<string>();
   const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
   for (const relName of Object.keys(relations)) {
     const val = params.get(`hydrate${capitalize(relName)}`);
     if (val) {
       const limit = parseInt(val, 10);
       if (!isNaN(limit) && limit > 0) {
-        hydrates[relName] = limit;
+        relHydrates[relName] = limit;
       }
     }
   }
-  return hydrates;
+
+  for (const refName of Object.keys(references)) {
+    const val = params.get(`hydrate${capitalize(refName)}`);
+    if (val === "true" || val === "1") {
+      refHydrates.add(refName);
+    }
+  }
+
+  return { relations: relHydrates, references: refHydrates };
 }
 
 // Per-relation hydrate result: array for ungrouped, Record<group, array> for grouped
@@ -97,6 +108,57 @@ export async function resolveHydrates(
         result[uri][relName] = groups;
       } else {
         result[uri][relName] = groups["_flat"] ?? [];
+      }
+    }
+  }
+
+  return result;
+}
+
+// --- References: embed records that our records point at ---
+
+export type ReferenceResult = Record<string, Record<string, any>>;
+
+export async function resolveReferences(
+  db: Database,
+  references: Record<string, ReferenceConfig>,
+  requested: Set<string>,
+  records: RecordRow[]
+): Promise<ReferenceResult> {
+  if (requested.size === 0 || records.length === 0) return {};
+
+  const result: ReferenceResult = {};
+
+  for (const refName of requested) {
+    const ref = references[refName];
+    if (!ref) continue;
+
+    // Extract target URIs from our records
+    const targetMap = new Map<string, string[]>(); // targetUri → parentUris[]
+    for (const r of records) {
+      const parsed = r.record ? JSON.parse(r.record) : null;
+      const targetValue = parsed ? getNestedValue(parsed, ref.field) : null;
+      if (!targetValue) continue;
+      if (!targetMap.has(targetValue)) targetMap.set(targetValue, []);
+      targetMap.get(targetValue)!.push(r.uri);
+    }
+
+    const targetUris = [...targetMap.keys()];
+    if (targetUris.length === 0) continue;
+
+    const rows = await batchedInQuery<RecordRow>(
+      db,
+      `SELECT uri, did, collection, rkey, record, time_us FROM records
+       WHERE collection = ? AND uri IN (__IN__)`,
+      [ref.collection],
+      targetUris
+    );
+
+    for (const row of rows) {
+      const parentUris = targetMap.get(row.uri) ?? [];
+      for (const parentUri of parentUris) {
+        if (!result[parentUri]) result[parentUri] = {};
+        result[parentUri][refName] = formatRecord(row);
       }
     }
   }

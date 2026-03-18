@@ -24,6 +24,13 @@ export interface RelationConfig {
   groupBy?: string;
 }
 
+/** A forward reference: this collection's records point at another collection. */
+export interface ReferenceConfig {
+  collection: string;
+  /** Field on this collection's records containing the target URI. */
+  field: string;
+}
+
 export type CustomQueryHandler = (
   db: Database,
   params: URLSearchParams,
@@ -34,6 +41,8 @@ export interface CollectionConfig {
   discover?: boolean;
   queryable?: Record<string, QueryableField>;
   relations?: Record<string, RelationConfig>;
+  /** Forward references: fields on this collection's records that point at another collection. */
+  references?: Record<string, ReferenceConfig>;
   queries?: Record<string, CustomQueryHandler>;
 }
 

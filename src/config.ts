@@ -12,7 +12,7 @@ export const config: ContrailConfig = {
       },
     },
     "community.lexicon.calendar.rsvp": {
-      relations: {
+      references: {
         event: {
           collection: "community.lexicon.calendar.event",
           field: "subject.uri",

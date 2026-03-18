@@ -5,7 +5,7 @@ import { resolvedQueryable, resolvedRelationsMap } from "../queryable.generated"
 import { queryRecords } from "../db";
 import type { SortOption } from "../db/records";
 import { backfillUser } from "../backfill";
-import { resolveHydrates, parseHydrateParams } from "./hydrate";
+import { resolveHydrates, resolveReferences, parseHydrateParams } from "./hydrate";
 import { resolveProfiles, collectDids } from "./profiles";
 import { resolveActor } from "../identity";
 import type { FormattedRecord } from "./helpers";
@@ -19,6 +19,7 @@ export function registerCollectionRoutes(
   for (const collection of getCollectionNames(config)) {
     const colConfig = config.collections[collection];
     const relations = colConfig.relations ?? {};
+    const references = colConfig.references ?? {};
     const queryableFields: Record<string, QueryableField> =
       resolvedQueryable[collection] ?? colConfig.queryable ?? {};
 
@@ -121,11 +122,17 @@ export function registerCollectionRoutes(
       });
 
       const rows = result.records;
-      const hydrateRequested = parseHydrateParams(params, relations);
+      const hydrateRequested = parseHydrateParams(params, relations, references);
       const hydrates = await resolveHydrates(
         db,
         relations,
-        hydrateRequested,
+        hydrateRequested.relations,
+        rows
+      );
+      const refs = await resolveReferences(
+        db,
+        references,
+        hydrateRequested.references,
         rows
       );
 
@@ -136,6 +143,12 @@ export function registerCollectionRoutes(
         if (h) {
           for (const [relName, groups] of Object.entries(h)) {
             formatted[relName] = groups;
+          }
+        }
+        const r = refs[row.uri];
+        if (r) {
+          for (const [refName, record] of Object.entries(r)) {
+            formatted[refName] = record;
           }
         }
         return formatted;
@@ -181,17 +194,29 @@ export function registerCollectionRoutes(
       const params = new URL(c.req.url).searchParams;
       const wantProfilesSingle = params.get("profiles") === "true";
 
-      const hydrateRequested = parseHydrateParams(params, relations);
+      const hydrateRequested = parseHydrateParams(params, relations, references);
       const hydrates = await resolveHydrates(
         db,
         relations,
-        hydrateRequested,
+        hydrateRequested.relations,
+        [row]
+      );
+      const refs = await resolveReferences(
+        db,
+        references,
+        hydrateRequested.references,
         [row]
       );
       const h = hydrates[row.uri];
       if (h) {
         for (const [relName, groups] of Object.entries(h)) {
           (formatted as any)[relName] = groups;
+        }
+      }
+      const r = refs[row.uri];
+      if (r) {
+        for (const [refName, record] of Object.entries(r)) {
+          (formatted as any)[refName] = record;
         }
       }
 

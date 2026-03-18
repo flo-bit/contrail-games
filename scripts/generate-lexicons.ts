@@ -575,6 +575,15 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
     });
   }
 
+  // Add per-reference hydrate params (e.g. hydrateEvent=true)
+  for (const refName of Object.keys(colConfig.references ?? {})) {
+    const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+    listRecordsParamProps[`hydrate${capitalize(refName)}`] = {
+      type: "boolean",
+      description: `Embed the referenced ${refName} record`,
+    };
+  }
+
   // Build sortable field values: queryable fields + count fields
   const sortableValues: string[] = [];
   for (const field of Object.keys(merged)) {
@@ -643,6 +652,15 @@ for (const [collection, colConfig] of Object.entries(config.collections)) {
       minimum: 1,
       maximum: 50,
       description: `Number of ${rd.relName} records to embed`,
+    };
+  }
+
+  // Add per-reference hydrate params to getRecord too
+  for (const refName of Object.keys(colConfig.references ?? {})) {
+    const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+    getRecordParamProps[`hydrate${capitalize(refName)}`] = {
+      type: "boolean",
+      description: `Embed the referenced ${refName} record`,
     };
   }
 
