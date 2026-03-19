@@ -104,7 +104,7 @@ export async function runIngestCycle(
 
   if (dependentCollections.length > 0) {
     const result = await db
-      .prepare("SELECT DISTINCT did FROM records")
+      .prepare("SELECT did FROM identities")
       .all<{ did: string }>();
     knownDids = new Set((result.results ?? []).map((r) => r.did));
   }

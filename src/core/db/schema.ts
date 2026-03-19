@@ -1,6 +1,6 @@
 import type { ContrailConfig, Database } from "../types";
-import { getRelationField } from "../types";
-import { resolvedQueryable } from "../queryable.generated";
+import { getRelationField, countColumnName } from "../types";
+import { resolvedQueryable, resolvedRelationsMap } from "../queryable.generated";
 import { getSearchableFields, ftsTableName } from "../search";
 
 const BASE_SCHEMA = `
@@ -16,12 +16,6 @@ CREATE TABLE IF NOT EXISTS records (
 );
 CREATE INDEX IF NOT EXISTS idx_records_collection_time ON records(collection, time_us DESC);
 CREATE INDEX IF NOT EXISTS idx_records_collection_did ON records(collection, did);
-CREATE TABLE IF NOT EXISTS counts (
-  uri TEXT NOT NULL,
-  type TEXT NOT NULL,
-  count INTEGER DEFAULT 0,
-  PRIMARY KEY (uri, type)
-);
 CREATE TABLE IF NOT EXISTS backfills (
   did TEXT NOT NULL,
   collection TEXT NOT NULL,
@@ -77,6 +71,47 @@ function buildDynamicIndexes(config: ContrailConfig): string[] {
   return indexes;
 }
 
+function buildCountColumns(config: ContrailConfig): string[] {
+  const stmts: string[] = [];
+  const addedColumns = new Set<string>();
+
+  for (const [collection, colConfig] of Object.entries(config.collections)) {
+    const relMap = resolvedRelationsMap[collection] ?? {};
+    for (const [relName, rel] of Object.entries(colConfig.relations ?? {})) {
+      // Total count column
+      const totalCol = countColumnName(rel.collection);
+      if (!addedColumns.has(totalCol)) {
+        addedColumns.add(totalCol);
+        stmts.push(
+          `ALTER TABLE records ADD COLUMN ${totalCol} INTEGER NOT NULL DEFAULT 0`
+        );
+      }
+      // Index for sorting by this count within the parent collection
+      stmts.push(
+        `CREATE INDEX IF NOT EXISTS idx_${sanitizeName(collection)}_${totalCol} ON records(collection, ${totalCol} DESC, time_us DESC)`
+      );
+
+      // Grouped count columns
+      const mapping = relMap[relName];
+      if (mapping) {
+        for (const [, fullToken] of Object.entries(mapping.groups)) {
+          const groupCol = countColumnName(fullToken);
+          if (!addedColumns.has(groupCol)) {
+            addedColumns.add(groupCol);
+            stmts.push(
+              `ALTER TABLE records ADD COLUMN ${groupCol} INTEGER NOT NULL DEFAULT 0`
+            );
+          }
+          stmts.push(
+            `CREATE INDEX IF NOT EXISTS idx_${sanitizeName(collection)}_${groupCol} ON records(collection, ${groupCol} DESC, time_us DESC)`
+          );
+        }
+      }
+    }
+  }
+  return stmts;
+}
+
 function buildFtsTables(config: ContrailConfig): string[] {
   const stmts: string[] = [];
   for (const [collection, colConfig] of Object.entries(config.collections)) {
@@ -119,4 +154,13 @@ export async function initSchema(
 
   await db.batch(all.map((s) => db.prepare(s)));
   await runMigrations(db);
+
+  // Add count columns (ALTER TABLE — may already exist)
+  for (const stmt of buildCountColumns(config)) {
+    try {
+      await db.prepare(stmt).run();
+    } catch {
+      // Column/index already exists — ignore
+    }
+  }
 }

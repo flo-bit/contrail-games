@@ -160,6 +160,10 @@ export function getRelationField(rel: RelationConfig): string {
   return rel.field ?? DEFAULT_RELATION_FIELD;
 }
 
+export function countColumnName(type: string): string {
+  return "count_" + type.replace(/[^a-zA-Z0-9]/g, "_");
+}
+
 export function getCollectionNames(config: ContrailConfig): string[] {
   return Object.keys(config.collections);
 }

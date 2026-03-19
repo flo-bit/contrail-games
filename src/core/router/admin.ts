@@ -2,6 +2,7 @@ import type { Hono, Context, Next } from "hono";
 import type { ContrailConfig, Database } from "../types";
 import { getCollectionNames } from "../types";
 import { getLastCursor } from "../db";
+import { initSchema } from "../db/schema";
 import { backfillUser, discoverDIDs } from "../backfill";
 import { parseIntParam } from "./helpers";
 
@@ -81,8 +82,8 @@ export function registerAdminRoutes(
         await db
           .prepare(
             `INSERT OR IGNORE INTO backfills (did, collection, completed)
-             SELECT DISTINCT r.did, ?, 0 FROM records r
-             LEFT JOIN backfills b ON b.did = r.did AND b.collection = ?
+             SELECT i.did, ?, 0 FROM identities i
+             LEFT JOIN backfills b ON b.did = i.did AND b.collection = ?
              WHERE b.did IS NULL`
           )
           .bind(depCol, depCol)
@@ -127,7 +128,7 @@ export function registerAdminRoutes(
   });
 
   app.get(`/xrpc/${ns}.admin.reset`, requireAdmin, async (c) => {
-    const tables = ["records", "counts", "backfills", "discovery", "cursor", "identities"];
+    const tables = ["records", "backfills", "discovery", "cursor", "identities"];
     await db.batch(tables.map((t) => db.prepare(`DELETE FROM ${t}`)));
     return c.json({ ok: true });
   });

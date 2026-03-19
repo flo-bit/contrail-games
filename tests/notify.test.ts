@@ -268,7 +268,7 @@ describe("POST notifyOfUpdate", () => {
     await seedIdentity(did, "https://pds.example.com");
     mockFetch({
       [rsvpUri]: {
-        value: { subject: { uri: eventUri }, status: "going" },
+        value: { subject: { uri: eventUri }, status: "community.lexicon.calendar.rsvp#going" },
         cid: "rsvpcid",
       },
     });
@@ -293,7 +293,7 @@ describe("POST notifyOfUpdate", () => {
     const did = "did:plc:test";
     const eventUri = `at://${did}/community.lexicon.calendar.event/evt1`;
     const rsvpUri = `at://${did}/community.lexicon.calendar.rsvp/r1`;
-    const rsvpRecord = { subject: { uri: eventUri }, status: "going" };
+    const rsvpRecord = { subject: { uri: eventUri }, status: "community.lexicon.calendar.rsvp#going" };
 
     // Insert parent event and RSVP via normal ingestion
     await applyEvents(db, [
@@ -362,7 +362,7 @@ describe("POST notifyOfUpdate", () => {
           collection: "community.lexicon.calendar.rsvp",
           rkey: "r1",
           cid: "oldcid",
-          record: { subject: { uri: eventUri }, status: "going" },
+          record: { subject: { uri: eventUri }, status: "community.lexicon.calendar.rsvp#going" },
           time_us: 2000000,
         }),
       ],
@@ -436,7 +436,7 @@ describe("POST notifyOfUpdate", () => {
           did,
           collection: "community.lexicon.calendar.rsvp",
           rkey: "r1",
-          record: { subject: { uri: eventUri }, status: "going" },
+          record: { subject: { uri: eventUri }, status: "community.lexicon.calendar.rsvp#going" },
           time_us: 2000000,
         }),
       ],

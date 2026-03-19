@@ -10,6 +10,8 @@ const PAGE_SIZE = 100;
 const BATCH_SIZE = 50;
 const MAX_RETRIES = 5;
 
+const REQUEST_TIMEOUT_MS = 10_000;
+
 async function withRetry<T>(
   fn: () => Promise<T>,
   label: string,
@@ -18,7 +20,12 @@ async function withRetry<T>(
   let lastError: unknown;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await fn();
+      return await Promise.race([
+        fn(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout: ${label}`)), REQUEST_TIMEOUT_MS)
+        ),
+      ]);
     } catch (err) {
       lastError = err;
       if (attempt < maxRetries) {

@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import type { ContrailConfig, Database, RecordRow, QueryableField } from "../types";
-import { getCollectionNames } from "../types";
+import { getCollectionNames, countColumnName } from "../types";
 import { resolvedQueryable, resolvedRelationsMap } from "../queryable.generated";
 import { queryRecords } from "../db";
 import type { SortOption } from "../db/records";
@@ -175,24 +175,16 @@ export function registerCollectionRoutes(
 
       const row = await db
         .prepare(
-          "SELECT uri, did, collection, rkey, cid, record, time_us, indexed_at FROM records WHERE uri = ? AND collection = ?"
+          "SELECT * FROM records WHERE uri = ? AND collection = ?"
         )
         .bind(uri, collection)
-        .first<RecordRow>();
+        .first<any>();
 
       if (!row) return c.json({ error: "Record not found" }, 404);
 
-      const countRows = await db
-        .prepare("SELECT type, count FROM counts WHERE uri = ?")
-        .bind(uri)
-        .all<{ type: string; count: number }>();
-
       const formatted = formatRecord(row);
-      if (countRows.results?.length) {
-        const counts: Record<string, number> = {};
-        for (const cr of countRows.results) counts[cr.type] = cr.count;
-        flattenCounts(formatted, counts, collection, relations);
-      }
+      const counts = extractCounts(row, collection, relations);
+      if (counts) flattenCounts(formatted, counts, collection, relations);
 
       const params = new URL(c.req.url).searchParams;
       const wantProfilesSingle = params.get("profiles") === "true";
@@ -243,6 +235,32 @@ export function registerCollectionRoutes(
       });
     }
   }
+}
+
+function extractCounts(
+  row: any,
+  collection: string,
+  relations: Record<string, any>
+): Record<string, number> | undefined {
+  const relMap = resolvedRelationsMap[collection] ?? {};
+  const counts: Record<string, number> = {};
+
+  for (const [relName, rel] of Object.entries(relations)) {
+    const totalCol = countColumnName(rel.collection);
+    const val = row[totalCol];
+    if (val != null && val !== 0) counts[rel.collection] = val;
+
+    const mapping = relMap[relName];
+    if (mapping) {
+      for (const [, fullToken] of Object.entries(mapping.groups)) {
+        const groupCol = countColumnName(fullToken);
+        const gval = row[groupCol];
+        if (gval != null && gval !== 0) counts[fullToken] = gval;
+      }
+    }
+  }
+
+  return Object.keys(counts).length > 0 ? counts : undefined;
 }
 
 function flattenCounts(

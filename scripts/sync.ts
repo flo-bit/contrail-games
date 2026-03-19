@@ -23,7 +23,10 @@ async function main() {
   let lastRemaining = -1;
 
   while (true) {
-    const res = await fetch(`${base}/xrpc/${ns}.admin.sync`, { headers });
+    const res = await fetch(`${base}/xrpc/${ns}.admin.sync`, {
+      headers,
+      signal: AbortSignal.timeout(60_000),
+    });
     const result = (await res.json()) as {
       discovered: number;
       backfilled: number;

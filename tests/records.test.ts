@@ -84,7 +84,7 @@ describe("applyEvents", () => {
           did: "did:plc:user1",
           collection: "community.lexicon.calendar.rsvp",
           rkey: "r1",
-          record: { subject: { uri: eventUri }, status: "going" },
+          record: { subject: { uri: eventUri }, status: "community.lexicon.calendar.rsvp#going" },
           time_us: 2000000,
         }),
       ],
@@ -104,7 +104,7 @@ describe("applyEvents", () => {
     const eventUri = "at://did:plc:test/community.lexicon.calendar.event/evt1";
     await applyEvents(db, [makeEvent({ uri: eventUri, rkey: "evt1" })]);
 
-    const rsvpRecord = { subject: { uri: eventUri }, status: "going" };
+    const rsvpRecord = { subject: { uri: eventUri }, status: "community.lexicon.calendar.rsvp#going" };
     await applyEvents(
       db,
       [

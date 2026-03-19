@@ -13,7 +13,6 @@ describe("initSchema", () => {
     const names = tables.results.map((t) => t.name);
 
     expect(names).toContain("records");
-    expect(names).toContain("counts");
     expect(names).toContain("backfills");
     expect(names).toContain("discovery");
     expect(names).toContain("cursor");

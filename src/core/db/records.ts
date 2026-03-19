@@ -6,7 +6,8 @@ import type {
   IngestEvent,
   RecordRow,
 } from "../types";
-import { getNestedValue, getRelationField } from "../types";
+import { getNestedValue, getRelationField, countColumnName } from "../types";
+import { resolvedRelationsMap } from "../queryable.generated";
 import { getSearchableFields, ftsTableName, buildFtsContent } from "../search";
 
 // --- Counts ---
@@ -46,25 +47,21 @@ function buildCountStatements(
     const targetUri = getNestedValue(record, getRelationField(rel));
     if (!targetUri) continue;
 
-    const types = [rel.collection];
+    const columns = [countColumnName(rel.collection)];
     if (rel.groupBy) {
       const groupValue = getNestedValue(record, rel.groupBy);
-      if (groupValue != null) types.push(String(groupValue));
+      if (groupValue != null) columns.push(countColumnName(String(groupValue)));
     }
 
-    for (const type of types) {
+    for (const col of columns) {
       statements.push(
-        isCreate
-          ? db
-              .prepare(
-                "INSERT INTO counts (uri, type, count) VALUES (?, ?, 1) ON CONFLICT(uri, type) DO UPDATE SET count = count + 1"
-              )
-              .bind(targetUri, type)
-          : db
-              .prepare(
-                "UPDATE counts SET count = MAX(count - 1, 0) WHERE uri = ? AND type = ?"
-              )
-              .bind(targetUri, type)
+        db
+          .prepare(
+            isCreate
+              ? `UPDATE records SET ${col} = ${col} + 1 WHERE uri = ?`
+              : `UPDATE records SET ${col} = MAX(${col} - 1, 0) WHERE uri = ?`
+          )
+          .bind(targetUri)
       );
     }
   }
@@ -171,6 +168,26 @@ export async function applyEvents(
   await db.batch(batch);
 }
 
+// --- Count columns ---
+
+function getCountColumns(config: ContrailConfig, collection: string): { type: string; column: string }[] {
+  const colConfig = config.collections[collection];
+  if (!colConfig?.relations) return [];
+  const columns: { type: string; column: string }[] = [];
+  const relMap = resolvedRelationsMap[collection] ?? {};
+
+  for (const [relName, rel] of Object.entries(colConfig.relations)) {
+    columns.push({ type: rel.collection, column: countColumnName(rel.collection) });
+    const mapping = relMap[relName];
+    if (mapping) {
+      for (const [, fullToken] of Object.entries(mapping.groups)) {
+        columns.push({ type: fullToken, column: countColumnName(fullToken) });
+      }
+    }
+  }
+  return columns;
+}
+
 // --- Query ---
 
 export interface SortOption {
@@ -212,6 +229,8 @@ export async function queryRecords(
   const conditions: string[] = ["r.collection = ?"];
   const bindings: (string | number)[] = [collection];
 
+  const countCols = getCountColumns(config, collection);
+
   if (did) {
     conditions.push("r.did = ?");
     bindings.push(did);
@@ -220,9 +239,9 @@ export async function queryRecords(
   // Cursor = AT URI of last seen record. Look it up to get keyset values.
   if (cursor) {
     const cursorRow = await db
-      .prepare("SELECT record, time_us FROM records WHERE uri = ?")
+      .prepare("SELECT * FROM records WHERE uri = ?")
       .bind(cursor)
-      .first<{ record: string | null; time_us: number }>();
+      .first<any>();
 
     if (cursorRow) {
       if (sort?.recordField) {
@@ -233,7 +252,11 @@ export async function queryRecords(
         conditions.push(`(${field} ${cmp} ? OR (${field} = ? AND r.time_us < ?))`);
         bindings.push(sortValue ?? "", sortValue ?? "", cursorRow.time_us);
       } else if (sort?.countType) {
-        // Count sort cursor — look up the count value, handled in HAVING below
+        const sortCol = countColumnName(sort.countType);
+        const countValue = cursorRow[sortCol] ?? 0;
+        const cmp = sort.direction === "desc" ? "<" : ">";
+        conditions.push(`(r.${sortCol} ${cmp} ? OR (r.${sortCol} = ? AND r.time_us < ?))`);
+        bindings.push(countValue, countValue, cursorRow.time_us);
       } else {
         conditions.push("r.time_us < ?");
         bindings.push(cursorRow.time_us);
@@ -257,6 +280,13 @@ export async function queryRecords(
     }
   }
 
+  // Count filters — direct column comparison instead of HAVING
+  for (const [type, minCount] of Object.entries(countFilters)) {
+    const col = countColumnName(type);
+    conditions.push(`r.${col} >= ?`);
+    bindings.push(minCount);
+  }
+
   // FTS search
   let ftsJoin = "";
   if (search) {
@@ -270,79 +300,59 @@ export async function queryRecords(
     }
   }
 
-  const colConfig = config.collections[collection];
-  const relations = colConfig?.relations ?? {};
-  const sortByCount = sort?.countType != null;
-  const needsCounts = Object.keys(relations).length > 0 || Object.keys(countFilters).length > 0 || sortByCount;
-
-  const countHaving: string[] = [];
-  const countHavingBindings: (string | number)[] = [];
-  for (const [type, minCount] of Object.entries(countFilters)) {
-    countHaving.push(`COALESCE(SUM(CASE WHEN c.type = ? THEN c.count END), 0) >= ?`);
-    countHavingBindings.push(type, minCount);
-  }
-
-  // Cursor condition for count sort — keyset pagination in HAVING
-  if (cursor && sort?.countType) {
-    const countRow = await db
-      .prepare("SELECT COALESCE(count, 0) as count FROM counts WHERE uri = ? AND type = ?")
-      .bind(cursor, sort.countType)
-      .first<{ count: number }>();
-    const cursorTimeRow = await db
-      .prepare("SELECT time_us FROM records WHERE uri = ?")
-      .bind(cursor)
-      .first<{ time_us: number }>();
-
-    if (cursorTimeRow) {
-      const countValue = countRow?.count ?? 0;
-      const countExpr = `COALESCE(SUM(CASE WHEN c.type = ? THEN c.count END), 0)`;
-      const cmp = sort.direction === "desc" ? "<" : ">";
-      countHaving.push(`(${countExpr} ${cmp} ? OR (${countExpr} = ? AND r.time_us < ?))`);
-      countHavingBindings.push(sort.countType, countValue, sort.countType, countValue, cursorTimeRow.time_us);
-    }
-  }
-
   const where = conditions.join(" AND ");
-  const select = needsCounts
-    ? "r.uri, r.did, r.collection, r.rkey, r.cid, r.record, r.time_us, r.indexed_at, GROUP_CONCAT(c.type || ':' || c.count) as _counts"
-    : "r.uri, r.did, r.collection, r.rkey, r.cid, r.record, r.time_us, r.indexed_at";
-  const joinParts: string[] = [];
-  if (ftsJoin) joinParts.push(ftsJoin);
-  if (needsCounts) joinParts.push("LEFT JOIN counts c ON c.uri = r.uri");
-  const join = joinParts.join(" ");
-  const group = needsCounts ? "GROUP BY r.uri" : "";
-  const having = countHaving.length > 0 ? `HAVING ${countHaving.join(" AND ")}` : "";
+
+  // Select count columns directly
+  const countSelect = countCols.length > 0
+    ? ", " + countCols.map(({ column }) => `r.${column}`).join(", ")
+    : "";
+  const select = `r.uri, r.did, r.collection, r.rkey, r.cid, r.record, r.time_us, r.indexed_at${countSelect}`;
+
+  const join = ftsJoin;
 
   let orderBy: string;
-  const orderBindings: (string | number)[] = [];
   if (sort?.recordField) {
     const dir = sort.direction === "desc" ? "DESC" : "ASC";
     orderBy = `json_extract(r.record, '$.${sort.recordField}') ${dir}, r.time_us DESC`;
   } else if (sort?.countType) {
     const dir = sort.direction === "desc" ? "DESC" : "ASC";
-    orderBy = `COALESCE(SUM(CASE WHEN c.type = ? THEN c.count END), 0) ${dir}, r.time_us DESC`;
-    orderBindings.push(sort.countType);
+    const sortCol = countColumnName(sort.countType);
+    orderBy = `r.${sortCol} ${dir}, r.time_us DESC`;
   } else if (ftsJoin) {
     orderBy = "fts.rank, r.time_us DESC";
   } else {
     orderBy = "r.time_us DESC";
   }
 
-  if (needsCounts) bindings.push(...countHavingBindings);
-  bindings.push(...orderBindings);
   bindings.push(limit);
 
-  const query = `SELECT ${select} FROM records r ${join} WHERE ${where} ${group} ${having} ORDER BY ${orderBy} LIMIT ?`;
+  const query = `SELECT ${select} FROM records r ${join} WHERE ${where} ORDER BY ${orderBy} LIMIT ?`;
 
   const result = await db
     .prepare(query)
     .bind(...bindings)
-    .all<RecordRow & { _counts?: string }>();
+    .all<any>();
 
-  const records = (result.results ?? []).map((row) => {
-    const { _counts, ...rest } = row;
-    const counts = parseCounts(_counts);
-    return counts ? { ...rest, counts } : rest;
+  const records = (result.results ?? []).map((row: any) => {
+    const rec: RecordRow & { counts?: Record<string, number> } = {
+      uri: row.uri,
+      did: row.did,
+      collection: row.collection,
+      rkey: row.rkey,
+      cid: row.cid,
+      record: row.record,
+      time_us: row.time_us,
+      indexed_at: row.indexed_at,
+    };
+    if (countCols.length > 0) {
+      const counts: Record<string, number> = {};
+      for (const { type, column } of countCols) {
+        const val = row[column];
+        if (val != null && val !== 0) counts[type] = val;
+      }
+      if (Object.keys(counts).length > 0) rec.counts = counts;
+    }
+    return rec;
   });
 
   const nextCursor =
@@ -351,21 +361,6 @@ export async function queryRecords(
       : undefined;
 
   return { records, cursor: nextCursor };
-}
-
-function parseCounts(raw?: string | null): Record<string, number> | undefined {
-  if (!raw) return undefined;
-  const counts: Record<string, number> = {};
-  for (const part of raw.split(",")) {
-    const sep = part.lastIndexOf(":");
-    if (sep === -1) continue;
-    const type = part.slice(0, sep);
-    const count = parseInt(part.slice(sep + 1), 10);
-    if (type && !isNaN(count)) {
-      counts[type] = count;
-    }
-  }
-  return Object.keys(counts).length > 0 ? counts : undefined;
 }
 
 // --- Users ---
