@@ -1,6 +1,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "contrail",
+	"name": "contrail-games",
 	"main": "src/adapters/worker.ts",
 	"compatibility_date": "2025-12-25",
 	"observability": {
@@ -10,7 +10,7 @@
 		{
 			"binding": "DB",
 			"database_name": "contrail",
-			"database_id": "29cf6e32-d0b9-4646-ac52-bfbeef085c1a",
+			"database_id": "28c93587-64f8-4819-9119-6a0f84b3d537",
 			"remote": true
 		}
 	],

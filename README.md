@@ -13,8 +13,8 @@ Define collections — get automatic Jetstream ingestion, PDS backfill, user dis
 pnpm install
 # Edit src/config.ts with your collections
 pnpm generate:pull   # pull lexicons from network, auto-detect fields, generate types
-pnpm dev:auto        # start wrangler dev with auto-ingestion
-pnpm sync            # discover users + backfill records from PDS
+pnpm dev:auto        # start wrangler dev with auto-ingestion, leave running while you sync
+pnpm sync            # in a different terminal, discover users + backfill records from PDS
 ```
 
 ### Production
