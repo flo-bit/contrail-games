@@ -1,30 +1,64 @@
 {
   "lexicon": 1,
-  "id": "community.lexicon.calendar.event.getRecord",
+  "id": "games.atmo.fours.puzzle.listRecords",
   "defs": {
     "main": {
       "type": "query",
-      "description": "Get a single community.lexicon.calendar.event record by AT URI",
+      "description": "Query games.atmo.fours.puzzle records with filters",
       "parameters": {
         "type": "params",
-        "required": [
-          "uri"
-        ],
         "properties": {
-          "uri": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "actor": {
             "type": "string",
-            "format": "at-uri",
-            "description": "AT URI of the record"
+            "format": "at-identifier",
+            "description": "Filter by DID or handle (triggers on-demand backfill)"
           },
           "profiles": {
             "type": "boolean",
             "description": "Include profile + identity info keyed by DID"
           },
-          "hydrateRsvps": {
+          "createdAtMin": {
+            "type": "string",
+            "description": "Minimum value for createdAt"
+          },
+          "createdAtMax": {
+            "type": "string",
+            "description": "Maximum value for createdAt"
+          },
+          "scoresCountMin": {
+            "type": "integer",
+            "description": "Minimum total scores count"
+          },
+          "hydrateScores": {
             "type": "integer",
             "minimum": 1,
             "maximum": 50,
-            "description": "Number of rsvps records to embed"
+            "description": "Number of scores records to embed per record"
+          },
+          "sort": {
+            "type": "string",
+            "knownValues": [
+              "createdAt",
+              "scoresCount"
+            ],
+            "description": "Field to sort by (default: time_us)"
+          },
+          "order": {
+            "type": "string",
+            "knownValues": [
+              "asc",
+              "desc"
+            ],
+            "description": "Sort direction (default: desc for dates/numbers/counts, asc for strings)"
           }
         }
       },
@@ -33,57 +67,18 @@
         "schema": {
           "type": "object",
           "required": [
-            "uri",
-            "did",
-            "collection",
-            "rkey",
-            "time_us"
+            "records"
           ],
           "properties": {
-            "uri": {
-              "type": "string",
-              "format": "at-uri"
+            "records": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#record"
+              }
             },
-            "did": {
-              "type": "string",
-              "format": "did"
-            },
-            "collection": {
-              "type": "string",
-              "format": "nsid"
-            },
-            "rkey": {
+            "cursor": {
               "type": "string"
-            },
-            "cid": {
-              "type": "string"
-            },
-            "record": {
-              "type": "ref",
-              "ref": "community.lexicon.calendar.event#main"
-            },
-            "time_us": {
-              "type": "integer"
-            },
-            "rsvpsCount": {
-              "type": "integer",
-              "description": "Total rsvps count"
-            },
-            "rsvpsInterestedCount": {
-              "type": "integer",
-              "description": "rsvps count where status = interested"
-            },
-            "rsvpsGoingCount": {
-              "type": "integer",
-              "description": "rsvps count where status = going"
-            },
-            "rsvpsNotgoingCount": {
-              "type": "integer",
-              "description": "rsvps count where status = notgoing"
-            },
-            "rsvps": {
-              "type": "ref",
-              "ref": "#hydrateRsvps"
             },
             "profiles": {
               "type": "array",
@@ -96,7 +91,7 @@
         }
       }
     },
-    "hydrateRsvpsRecord": {
+    "record": {
       "type": "object",
       "required": [
         "uri",
@@ -126,43 +121,58 @@
         },
         "record": {
           "type": "ref",
-          "ref": "community.lexicon.calendar.rsvp#main"
+          "ref": "games.atmo.fours.puzzle#main"
         },
         "time_us": {
           "type": "integer"
+        },
+        "scoresCount": {
+          "type": "integer",
+          "description": "Total scores count"
+        },
+        "scores": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#hydrateScoresRecord"
+          }
         }
       }
     },
-    "hydrateRsvps": {
+    "hydrateScoresRecord": {
       "type": "object",
+      "required": [
+        "uri",
+        "did",
+        "collection",
+        "rkey",
+        "time_us"
+      ],
       "properties": {
-        "interested": {
-          "type": "array",
-          "items": {
-            "type": "ref",
-            "ref": "#hydrateRsvpsRecord"
-          }
+        "uri": {
+          "type": "string",
+          "format": "at-uri"
         },
-        "going": {
-          "type": "array",
-          "items": {
-            "type": "ref",
-            "ref": "#hydrateRsvpsRecord"
-          }
+        "did": {
+          "type": "string",
+          "format": "did"
         },
-        "notgoing": {
-          "type": "array",
-          "items": {
-            "type": "ref",
-            "ref": "#hydrateRsvpsRecord"
-          }
+        "collection": {
+          "type": "string",
+          "format": "nsid"
         },
-        "other": {
-          "type": "array",
-          "items": {
-            "type": "ref",
-            "ref": "#hydrateRsvpsRecord"
-          }
+        "rkey": {
+          "type": "string"
+        },
+        "cid": {
+          "type": "string"
+        },
+        "record": {
+          "type": "ref",
+          "ref": "games.atmo.fours.score#main"
+        },
+        "time_us": {
+          "type": "integer"
         }
       }
     },

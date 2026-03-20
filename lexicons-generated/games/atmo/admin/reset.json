@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "rsvp.atmo.admin.reset",
+  "id": "games.atmo.admin.reset",
   "defs": {
     "main": {
       "type": "query",

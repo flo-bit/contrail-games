@@ -1,62 +1,30 @@
 {
   "lexicon": 1,
-  "id": "community.lexicon.calendar.rsvp.listRecords",
+  "id": "games.atmo.fours.puzzle.getRecord",
   "defs": {
     "main": {
       "type": "query",
-      "description": "Query community.lexicon.calendar.rsvp records with filters",
+      "description": "Get a single games.atmo.fours.puzzle record by AT URI",
       "parameters": {
         "type": "params",
+        "required": [
+          "uri"
+        ],
         "properties": {
-          "limit": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 200,
-            "default": 50
-          },
-          "cursor": {
-            "type": "string"
-          },
-          "actor": {
+          "uri": {
             "type": "string",
-            "format": "at-identifier",
-            "description": "Filter by DID or handle (triggers on-demand backfill)"
+            "format": "at-uri",
+            "description": "AT URI of the record"
           },
           "profiles": {
             "type": "boolean",
             "description": "Include profile + identity info keyed by DID"
           },
-          "search": {
-            "type": "string",
-            "description": "Full-text search across: status, subject.uri"
-          },
-          "status": {
-            "type": "string",
-            "description": "Filter by status"
-          },
-          "subjectUri": {
-            "type": "string",
-            "description": "Filter by subject.uri"
-          },
-          "hydrateEvent": {
-            "type": "boolean",
-            "description": "Embed the referenced event record"
-          },
-          "sort": {
-            "type": "string",
-            "knownValues": [
-              "status",
-              "subjectUri"
-            ],
-            "description": "Field to sort by (default: time_us)"
-          },
-          "order": {
-            "type": "string",
-            "knownValues": [
-              "asc",
-              "desc"
-            ],
-            "description": "Sort direction (default: desc for dates/numbers/counts, asc for strings)"
+          "hydrateScores": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Number of scores records to embed"
           }
         }
       },
@@ -65,18 +33,48 @@
         "schema": {
           "type": "object",
           "required": [
-            "records"
+            "uri",
+            "did",
+            "collection",
+            "rkey",
+            "time_us"
           ],
           "properties": {
-            "records": {
+            "uri": {
+              "type": "string",
+              "format": "at-uri"
+            },
+            "did": {
+              "type": "string",
+              "format": "did"
+            },
+            "collection": {
+              "type": "string",
+              "format": "nsid"
+            },
+            "rkey": {
+              "type": "string"
+            },
+            "cid": {
+              "type": "string"
+            },
+            "record": {
+              "type": "ref",
+              "ref": "games.atmo.fours.puzzle#main"
+            },
+            "time_us": {
+              "type": "integer"
+            },
+            "scoresCount": {
+              "type": "integer",
+              "description": "Total scores count"
+            },
+            "scores": {
               "type": "array",
               "items": {
                 "type": "ref",
-                "ref": "#record"
+                "ref": "#hydrateScoresRecord"
               }
-            },
-            "cursor": {
-              "type": "string"
             },
             "profiles": {
               "type": "array",
@@ -89,7 +87,7 @@
         }
       }
     },
-    "record": {
+    "hydrateScoresRecord": {
       "type": "object",
       "required": [
         "uri",
@@ -119,48 +117,7 @@
         },
         "record": {
           "type": "ref",
-          "ref": "community.lexicon.calendar.rsvp#main"
-        },
-        "time_us": {
-          "type": "integer"
-        },
-        "event": {
-          "type": "ref",
-          "ref": "#refEventRecord"
-        }
-      }
-    },
-    "refEventRecord": {
-      "type": "object",
-      "required": [
-        "uri",
-        "did",
-        "collection",
-        "rkey",
-        "time_us"
-      ],
-      "properties": {
-        "uri": {
-          "type": "string",
-          "format": "at-uri"
-        },
-        "did": {
-          "type": "string",
-          "format": "did"
-        },
-        "collection": {
-          "type": "string",
-          "format": "nsid"
-        },
-        "rkey": {
-          "type": "string"
-        },
-        "cid": {
-          "type": "string"
-        },
-        "record": {
-          "type": "ref",
-          "ref": "community.lexicon.calendar.event#main"
+          "ref": "games.atmo.fours.score#main"
         },
         "time_us": {
           "type": "integer"

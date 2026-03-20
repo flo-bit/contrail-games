@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "rsvp.atmo.notifyOfUpdate",
+  "id": "games.atmo.notifyOfUpdate",
   "defs": {
     "main": {
       "type": "procedure",

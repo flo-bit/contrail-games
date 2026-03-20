@@ -1,0 +1,64 @@
+{
+  "lexicon": 1,
+  "id": "games.atmo.fours.score",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A user's score for a specific Fours puzzle, recording their guesses and outcome.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["puzzle", "guesses", "state"],
+        "properties": {
+          "puzzle": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Reference to the puzzle this score is for."
+          },
+          "guesses": {
+            "type": "array",
+            "description": "Ordered list of guesses made during the game. Each guess is a group of four words.",
+            "items": {
+              "type": "ref",
+              "ref": "games.atmo.fours.score#guess"
+            }
+          },
+          "state": {
+            "type": "string",
+            "description": "The outcome of the game.",
+            "knownValues": [
+              "games.atmo.fours.score#won",
+              "games.atmo.fours.score#lost"
+            ]
+          }
+        }
+      }
+    },
+    "guess": {
+      "type": "object",
+      "description": "A single guess consisting of four selected words.",
+      "required": ["words"],
+      "properties": {
+        "words": {
+          "type": "array",
+          "description": "The four words selected in this guess.",
+          "minLength": 4,
+          "maxLength": 4,
+          "items": {
+            "type": "string",
+            "maxGraphemes": 50,
+            "maxLength": 200
+          }
+        }
+      }
+    },
+    "won": {
+      "type": "token",
+      "description": "The player solved all four groups."
+    },
+    "lost": {
+      "type": "token",
+      "description": "The player used all allowed mistakes without solving all groups."
+    }
+  }
+}

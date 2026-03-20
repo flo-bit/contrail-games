@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "rsvp.atmo.getProfile",
+  "id": "games.atmo.getProfile",
   "defs": {
     "main": {
       "type": "query",

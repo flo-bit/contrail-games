@@ -1,10 +1,10 @@
 {
   "lexicon": 1,
-  "id": "community.lexicon.calendar.event.listRecords",
+  "id": "games.atmo.fours.score.listRecords",
   "defs": {
     "main": {
       "type": "query",
-      "description": "Query community.lexicon.calendar.event records with filters",
+      "description": "Query games.atmo.fours.score records with filters",
       "parameters": {
         "type": "params",
         "properties": {
@@ -28,84 +28,25 @@
           },
           "search": {
             "type": "string",
-            "description": "Full-text search across: mode, name, status, description"
+            "description": "Full-text search across: puzzle.uri, state"
           },
-          "mode": {
+          "puzzleUri": {
             "type": "string",
-            "description": "Filter by mode"
+            "description": "Filter by puzzle.uri"
           },
-          "name": {
+          "state": {
             "type": "string",
-            "description": "Filter by name"
+            "description": "Filter by state"
           },
-          "endsAtMin": {
-            "type": "string",
-            "description": "Minimum value for endsAt"
-          },
-          "endsAtMax": {
-            "type": "string",
-            "description": "Maximum value for endsAt"
-          },
-          "status": {
-            "type": "string",
-            "description": "Filter by status"
-          },
-          "startsAtMin": {
-            "type": "string",
-            "description": "Minimum value for startsAt"
-          },
-          "startsAtMax": {
-            "type": "string",
-            "description": "Maximum value for startsAt"
-          },
-          "createdAtMin": {
-            "type": "string",
-            "description": "Minimum value for createdAt"
-          },
-          "createdAtMax": {
-            "type": "string",
-            "description": "Maximum value for createdAt"
-          },
-          "description": {
-            "type": "string",
-            "description": "Filter by description"
-          },
-          "rsvpsCountMin": {
-            "type": "integer",
-            "description": "Minimum total rsvps count"
-          },
-          "hydrateRsvps": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 50,
-            "description": "Number of rsvps records to embed per record"
-          },
-          "rsvpsInterestedCountMin": {
-            "type": "integer",
-            "description": "Minimum rsvps count where status = interested"
-          },
-          "rsvpsGoingCountMin": {
-            "type": "integer",
-            "description": "Minimum rsvps count where status = going"
-          },
-          "rsvpsNotgoingCountMin": {
-            "type": "integer",
-            "description": "Minimum rsvps count where status = notgoing"
+          "hydratePuzzle": {
+            "type": "boolean",
+            "description": "Embed the referenced puzzle record"
           },
           "sort": {
             "type": "string",
             "knownValues": [
-              "mode",
-              "name",
-              "endsAt",
-              "status",
-              "startsAt",
-              "createdAt",
-              "description",
-              "rsvpsCount",
-              "rsvpsInterestedCount",
-              "rsvpsGoingCount",
-              "rsvpsNotgoingCount"
+              "puzzleUri",
+              "state"
             ],
             "description": "Field to sort by (default: time_us)"
           },
@@ -178,34 +119,18 @@
         },
         "record": {
           "type": "ref",
-          "ref": "community.lexicon.calendar.event#main"
+          "ref": "games.atmo.fours.score#main"
         },
         "time_us": {
           "type": "integer"
         },
-        "rsvpsCount": {
-          "type": "integer",
-          "description": "Total rsvps count"
-        },
-        "rsvpsInterestedCount": {
-          "type": "integer",
-          "description": "rsvps count where status = interested"
-        },
-        "rsvpsGoingCount": {
-          "type": "integer",
-          "description": "rsvps count where status = going"
-        },
-        "rsvpsNotgoingCount": {
-          "type": "integer",
-          "description": "rsvps count where status = notgoing"
-        },
-        "rsvps": {
+        "puzzle": {
           "type": "ref",
-          "ref": "#hydrateRsvps"
+          "ref": "#refPuzzleRecord"
         }
       }
     },
-    "hydrateRsvpsRecord": {
+    "refPuzzleRecord": {
       "type": "object",
       "required": [
         "uri",
@@ -235,43 +160,10 @@
         },
         "record": {
           "type": "ref",
-          "ref": "community.lexicon.calendar.rsvp#main"
+          "ref": "games.atmo.fours.puzzle#main"
         },
         "time_us": {
           "type": "integer"
-        }
-      }
-    },
-    "hydrateRsvps": {
-      "type": "object",
-      "properties": {
-        "interested": {
-          "type": "array",
-          "items": {
-            "type": "ref",
-            "ref": "#hydrateRsvpsRecord"
-          }
-        },
-        "going": {
-          "type": "array",
-          "items": {
-            "type": "ref",
-            "ref": "#hydrateRsvpsRecord"
-          }
-        },
-        "notgoing": {
-          "type": "array",
-          "items": {
-            "type": "ref",
-            "ref": "#hydrateRsvpsRecord"
-          }
-        },
-        "other": {
-          "type": "array",
-          "items": {
-            "type": "ref",
-            "ref": "#hydrateRsvpsRecord"
-          }
         }
       }
     },

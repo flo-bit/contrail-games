@@ -1,0 +1,66 @@
+{
+  "lexicon": 1,
+  "id": "games.atmo.fours.puzzle",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A Fours puzzle consisting of four groups of four words, each with a category and difficulty level.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["groups", "createdAt"],
+        "properties": {
+          "groups": {
+            "type": "array",
+            "description": "The four groups that make up the puzzle.",
+            "minLength": 4,
+            "maxLength": 4,
+            "items": {
+              "type": "ref",
+              "ref": "games.atmo.fours.puzzle#group"
+            }
+          },
+          "allowDaily": {
+            "type": "boolean",
+            "description": "Whether the puzzle author allows this puzzle to be used in daily puzzle feeds."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Client-declared timestamp when the puzzle was created."
+          }
+        }
+      }
+    },
+    "group": {
+      "type": "object",
+      "description": "A group of four words sharing a common category.",
+      "required": ["category", "words", "difficulty"],
+      "properties": {
+        "category": {
+          "type": "string",
+          "description": "The category name that describes what the four words have in common.",
+          "maxGraphemes": 100,
+          "maxLength": 400
+        },
+        "words": {
+          "type": "array",
+          "description": "The four words belonging to this group.",
+          "minLength": 4,
+          "maxLength": 4,
+          "items": {
+            "type": "string",
+            "maxGraphemes": 50,
+            "maxLength": 200
+          }
+        },
+        "difficulty": {
+          "type": "integer",
+          "description": "Difficulty level of the group. 0 = easiest, 3 = hardest.",
+          "minimum": 0,
+          "maximum": 3
+        }
+      }
+    }
+  }
+}

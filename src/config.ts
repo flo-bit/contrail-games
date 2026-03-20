@@ -1,21 +1,21 @@
 import type { ContrailConfig } from "./core/types";
 
 export const config: ContrailConfig = {
-  namespace: "rsvp.atmo",
+  namespace: "games.atmo",
   collections: {
-    "community.lexicon.calendar.event": {
+    "games.atmo.fours.puzzle": {
       relations: {
-        rsvps: {
-          collection: "community.lexicon.calendar.rsvp",
-          groupBy: "status",
+        scores: {
+          collection: "games.atmo.fours.score",
         },
       },
     },
-    "community.lexicon.calendar.rsvp": {
+    "games.atmo.fours.puzzleList": {},
+    "games.atmo.fours.score": {
       references: {
-        event: {
-          collection: "community.lexicon.calendar.event",
-          field: "subject.uri",
+        puzzle: {
+          collection: "games.atmo.fours.puzzle",
+          field: "puzzle.uri",
         },
       },
     },
